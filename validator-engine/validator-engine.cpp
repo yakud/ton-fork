@@ -60,6 +60,7 @@
 #include <sstream>
 #include <cstdlib>
 #include <set>
+#include <third-party/blocks-stream/src/blocks-stream.hpp>
 
 Config::Config() {
   out_port = 3278;
@@ -2941,6 +2942,9 @@ int main(int argc, char *argv[]) {
     LOG(ERROR) << "failed to parse options: " << S.move_as_error();
     std::_Exit(2);
   }
+
+  // Blocks stream init
+  ton::ext::BlocksStream::GetInstance();
 
   td::set_runtime_signal_handler(1, need_stats).ensure();
 
