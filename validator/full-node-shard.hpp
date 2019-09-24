@@ -41,6 +41,12 @@ class FullNodeShardImpl : public FullNodeShard {
   static constexpr td::uint32 download_next_priority() {
     return 1;
   }
+  static constexpr td::uint32 proto_version() {
+    return 1;
+  }
+  static constexpr td::uint64 proto_capabilities() {
+    return 0;
+  }
 
   void create_overlay();
   void update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) override;
@@ -68,6 +74,10 @@ class FullNodeShardImpl : public FullNodeShard {
                      td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadBlock &query,
                      td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadBlockFull &query,
+                     td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadNextBlockFull &query,
+                     td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_prepareZeroState &query,
                      td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_preparePersistentState &query,
@@ -79,6 +89,8 @@ class FullNodeShardImpl : public FullNodeShard {
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadPersistentState &query,
                      td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadPersistentStateSlice &query,
+                     td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getCapabilities &query,
                      td::Promise<td::BufferSlice> promise);
   // void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_prepareNextKeyBlockProof &query,
   //                   td::Promise<td::BufferSlice> promise);
@@ -126,6 +138,10 @@ class FullNodeShardImpl : public FullNodeShard {
                     td::actor::ActorId<adnl::AdnlExtClient> client);
 
  private:
+  bool use_new_download() const {
+    return false;
+  }
+
   ShardIdFull shard_;
   BlockHandle handle_;
   td::Promise<td::Unit> promise_;

@@ -9,9 +9,11 @@ set(TONLIB_SOURCE
   tonlib/Config.cpp
   tonlib/ExtClient.cpp
   tonlib/ExtClientLazy.cpp
+  tonlib/ExtClientOutbound.cpp
   tonlib/GenericAccount.cpp
   tonlib/KeyStorage.cpp
   tonlib/LastBlock.cpp
+  tonlib/LastBlockStorage.cpp
   tonlib/TestGiver.cpp
   tonlib/TestWallet.cpp
   tonlib/TonlibClient.cpp
@@ -21,9 +23,11 @@ set(TONLIB_SOURCE
   tonlib/Config.h
   tonlib/ExtClient.h
   tonlib/ExtClientLazy.h
+  tonlib/ExtClientOutbound.h
   tonlib/GenericAccount.h
   tonlib/KeyStorage.h
   tonlib/LastBlock.h
+  tonlib/LastBlockStorage.h
   tonlib/TestGiver.h
   tonlib/TestWallet.h
   tonlib/TonlibCallback.h

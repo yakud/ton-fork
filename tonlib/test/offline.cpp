@@ -127,8 +127,8 @@ TEST(Tonlib, TestGiver) {
 
   auto wallet_query = fift_output.source_lookup.read_file("wallet-query.boc").move_as_ok().data;
 
-  auto res = GenericAccount::create_ext_message(TestGiver::address(), {},
-                                                TestGiver::make_a_gift_message(0, 1000000000ll * 6666 / 1000, address));
+  auto res = GenericAccount::create_ext_message(
+      TestGiver::address(), {}, TestGiver::make_a_gift_message(0, 1000000000ll * 6666 / 1000, "GIFT", address));
   vm::CellSlice(vm::NoVm(), res).print_rec(std::cerr);
   CHECK(vm::std_boc_deserialize(wallet_query).move_as_ok()->get_hash() == res->get_hash());
 }
@@ -172,16 +172,17 @@ TEST(Tonlib, InitClose) {
   {
     Client client;
     sync_send(client, make_object<tonlib_api::close>()).ensure();
-    sync_send(client, make_object<tonlib_api::init>(make_object<tonlib_api::options>("", "."))).ensure_error();
+    sync_send(client, make_object<tonlib_api::init>(make_object<tonlib_api::options>("", ".", false))).ensure_error();
   }
   {
     Client client;
     sync_send(client, make_object<tonlib_api::init>(nullptr)).ensure_error();
-    sync_send(client, make_object<tonlib_api::init>(make_object<tonlib_api::options>("fdajkfldsjkafld", ".")))
+    sync_send(client, make_object<tonlib_api::init>(make_object<tonlib_api::options>("fdajkfldsjkafld", ".", false)))
         .ensure_error();
-    sync_send(client, make_object<tonlib_api::init>(make_object<tonlib_api::options>("", "fdhskfds"))).ensure_error();
-    sync_send(client, make_object<tonlib_api::init>(make_object<tonlib_api::options>("", "."))).ensure();
-    sync_send(client, make_object<tonlib_api::init>(make_object<tonlib_api::options>("", "."))).ensure_error();
+    sync_send(client, make_object<tonlib_api::init>(make_object<tonlib_api::options>("", "fdhskfds", false)))
+        .ensure_error();
+    sync_send(client, make_object<tonlib_api::init>(make_object<tonlib_api::options>("", ".", false))).ensure();
+    sync_send(client, make_object<tonlib_api::init>(make_object<tonlib_api::options>("", ".", false))).ensure_error();
 
     td::Slice bad_config = R"abc(
 {
@@ -194,7 +195,7 @@ TEST(Tonlib, InitClose) {
     sync_send(client, make_object<tonlib_api::testGiver_getAccountState>()).ensure_error();
     sync_send(client, make_object<tonlib_api::close>()).ensure();
     sync_send(client, make_object<tonlib_api::close>()).ensure_error();
-    sync_send(client, make_object<tonlib_api::init>(make_object<tonlib_api::options>("", "."))).ensure_error();
+    sync_send(client, make_object<tonlib_api::init>(make_object<tonlib_api::options>("", ".", false))).ensure_error();
   }
 }
 
@@ -289,7 +290,7 @@ TEST(Tonlib, KeysApi) {
   Client client;
 
   // init
-  sync_send(client, make_object<tonlib_api::init>(make_object<tonlib_api::options>("", "."))).ensure();
+  sync_send(client, make_object<tonlib_api::init>(make_object<tonlib_api::options>("", ".", false))).ensure();
   auto local_password = td::SecureString("local password");
   auto mnemonic_password = td::SecureString("mnemonic password");
   {
