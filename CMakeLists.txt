@@ -376,6 +376,8 @@ add_subdirectory(utils)
 endif()
 #END internal
 
+add_subdirectory(blocks-stream)
+
 if (NOT CMAKE_CROSSCOMPILING)
   if (TDUTILS_MIME_TYPE)
     set(TDMIME_AUTO tdmime_auto)
