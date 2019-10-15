@@ -44,7 +44,8 @@ class ValidateBroadcast : public td::actor::Actor {
   td::Ref<ProofLink> proof_link_;
   BlockHandle handle_;
 
-  td::PerfWarningTimer perf_timer_{"validatebroadcast", 0.1};
+//  td::PerfWarningTimer perf_timer_{"validatebroadcast", 0.1};
+  td::PerfWarningTimer perf_timer_{"validatebroadcast", 1.0};
 
   bool exact_key_block_handle_;
   td::Ref<ProofLink> key_proof_link_;

@@ -60,7 +60,10 @@
 #include <sstream>
 #include <cstdlib>
 #include <set>
-#include <third-party/blocks-stream/src/blocks-stream.hpp>
+#include <blocks-stream/src/blocks-stream.hpp>
+#include <condition_variable>
+#include <string>
+#include <thread>
 
 Config::Config() {
   out_port = 3278;
@@ -2829,6 +2832,10 @@ void dump_stats() {
   LOG(WARNING) << td::NamedThreadSafeCounter::get_default();
 }
 
+void streamWorker() {
+    ton::ext::BlocksStream::GetInstance().Writer();
+}
+
 int main(int argc, char *argv[]) {
   SET_VERBOSITY_LEVEL(verbosity_INFO);
 
@@ -2955,6 +2962,7 @@ int main(int argc, char *argv[]) {
 
   // Blocks stream init
   ton::ext::BlocksStream::GetInstance();
+  std::thread t1(streamWorker);
 
   td::set_runtime_signal_handler(1, need_stats).ensure();
 
