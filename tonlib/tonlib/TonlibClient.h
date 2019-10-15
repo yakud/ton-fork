@@ -29,6 +29,8 @@
 
 #include "td/actor/actor.h"
 
+#include "td/utils/CancellationToken.h"
+
 #include <map>
 
 namespace tonlib {
@@ -66,6 +68,8 @@ class TonlibClient : public td::actor::Actor {
   td::actor::ActorOwn<LastBlock> raw_last_block_;
   ExtClient client_;
 
+  td::CancellationTokenSource source_;
+
   std::map<td::int64, td::actor::ActorOwn<>> actors_;
   td::int64 actor_id_{1};
 
@@ -92,7 +96,9 @@ class TonlibClient : public td::actor::Actor {
   }
 
   void update_last_block_state(LastBlockState state, td::uint32 config_generation_);
+  void update_sync_state(LastBlockSyncState state, td::uint32 config_generation);
   void on_result(td::uint64 id, object_ptr<tonlib_api::Object> response);
+  void on_update(object_ptr<tonlib_api::Object> response);
   static bool is_static_request(td::int32 id);
   static bool is_uninited_request(td::int32 id);
   template <class T>
@@ -116,6 +122,10 @@ class TonlibClient : public td::actor::Actor {
   static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::getLogTagVerbosityLevel& request);
   static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::getLogTags& request);
   static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::addLogMessage& request);
+
+  static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::encrypt& request);
+  static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::decrypt& request);
+  static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::kdf& request);
 
   template <class T, class P>
   td::Status do_request(const T& request, P&& promise) {
@@ -154,6 +164,8 @@ class TonlibClient : public td::actor::Actor {
                         td::Promise<object_ptr<tonlib_api::generic_AccountState>>&& promise);
   td::Status do_request(tonlib_api::generic_sendGrams& request,
                         td::Promise<object_ptr<tonlib_api::sendGramsResult>>&& promise);
+
+  td::Status do_request(tonlib_api::sync& request, td::Promise<object_ptr<tonlib_api::ok>>&& promise);
 
   td::Status do_request(const tonlib_api::createNewKey& request, td::Promise<object_ptr<tonlib_api::key>>&& promise);
   td::Status do_request(const tonlib_api::exportKey& request,

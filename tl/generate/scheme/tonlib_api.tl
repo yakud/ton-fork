@@ -65,7 +65,11 @@ generic.accountStateUninited account_state:uninited.accountState = generic.Accou
 
 sendGramsResult sent_until:int53 body_hash:bytes = SendGramsResult;
 
+syncStateDone = SyncState;
+syncStateInProgress from_seqno:int32 to_seqno:int32 current_seqno:int32 = SyncState;
+
 updateSendLiteServerQuery id:int64 data:bytes = Update;
+updateSyncState sync_state:SyncState = Update;
 
 //@class LogStream @description Describes a stream to which TDLib internal log is written
 
@@ -85,6 +89,8 @@ logVerbosityLevel verbosity_level:int32 = LogVerbosityLevel;
 //@description Contains a list of available TDLib internal log tags @tags List of log tags
 logTags tags:vector<string> = LogTags;
 
+data bytes:secureBytes = Data;
+
 ---functions---
 
 init options:options = Ok;
@@ -102,6 +108,10 @@ importKey local_password:secureBytes mnemonic_password:secureBytes exported_key:
 importPemKey local_password:secureBytes key_password:secureBytes exported_key:exportedPemKey = Key;
 importEncryptedKey local_password:secureBytes key_password:secureBytes exported_encrypted_key:exportedEncryptedKey = Key;
 changeLocalPassword input_key:inputKey new_local_password:secureBytes = Key;
+
+encrypt decrypted_data:secureBytes secret:secureBytes = Data;
+decrypt encrypted_data:secureBytes secret:secureBytes = Data;
+kdf password:secureBytes salt:secureBytes iterations:int32 = Data;
 
 unpackAccountAddress account_address:string = UnpackedAccountAddress;
 packAccountAddress account_address:unpackedAccountAddress = AccountAddress;
@@ -127,6 +137,8 @@ wallet.sendGrams private_key:inputKey destination:accountAddress seqno:int32 val
 testGiver.getAccountState = testGiver.AccountState;
 testGiver.getAccountAddress = AccountAddress;
 testGiver.sendGrams destination:accountAddress seqno:int32 amount:int64 message:bytes = SendGramsResult;
+
+sync = Ok;
 
 //generic.getAccountAddress initital_account_state:generic.InitialAccountState = AccountAddress;
 generic.getAccountState account_address:accountAddress = generic.AccountState;

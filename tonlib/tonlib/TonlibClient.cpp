@@ -28,6 +28,7 @@
 #include "tonlib/TestGiver.h"
 #include "tonlib/utils.h"
 #include "tonlib/keys/Mnemonic.h"
+#include "tonlib/keys/SimpleEncryption.h"
 
 #include "tonlib/TonlibError.h"
 
@@ -165,6 +166,9 @@ class GetTransactionHistory : public td::actor::Actor {
             hash_),
         [self = this](auto r_transactions) { self->with_transactions(std::move(r_transactions)); });
   }
+  void hangup() override {
+    check(TonlibError::Cancelled());
+  }
 };
 
 class GetRawAccountState : public td::actor::Actor {
@@ -276,6 +280,9 @@ class GetRawAccountState : public td::actor::Actor {
       stop();
     }
   }
+  void hangup() override {
+    check(TonlibError::Cancelled());
+  }
 };
 
 TonlibClient::TonlibClient(td::unique_ptr<TonlibCallback> callback) : callback_(std::move(callback)) {
@@ -283,6 +290,7 @@ TonlibClient::TonlibClient(td::unique_ptr<TonlibCallback> callback) : callback_(
 TonlibClient::~TonlibClient() = default;
 
 void TonlibClient::hangup() {
+  source_.cancel();
   is_closing_ = true;
   ref_cnt_--;
   raw_client_ = {};
@@ -299,7 +307,7 @@ ExtClientRef TonlibClient::get_client_ref() {
 }
 
 void TonlibClient::proxy_request(td::int64 query_id, std::string data) {
-  callback_->on_result(0, tonlib_api::make_object<tonlib_api::updateSendLiteServerQuery>(query_id, data));
+  on_update(tonlib_api::make_object<tonlib_api::updateSendLiteServerQuery>(query_id, data));
 }
 
 void TonlibClient::init_ext_client() {
@@ -341,8 +349,28 @@ void TonlibClient::init_ext_client() {
 }
 
 void TonlibClient::update_last_block_state(LastBlockState state, td::uint32 config_generation) {
-  if (config_generation == config_generation_) {
-    last_block_storage_.save_state(blockchain_name_, state);
+  if (config_generation != config_generation_) {
+    return;
+  }
+  last_block_storage_.save_state(blockchain_name_, state);
+}
+
+void TonlibClient::update_sync_state(LastBlockSyncState state, td::uint32 config_generation) {
+  if (config_generation != config_generation_) {
+    return;
+  }
+  switch (state.type) {
+    case LastBlockSyncState::Done:
+      on_update(
+          tonlib_api::make_object<tonlib_api::updateSyncState>(tonlib_api::make_object<tonlib_api::syncStateDone>()));
+      break;
+    case LastBlockSyncState::InProgress:
+      on_update(
+          tonlib_api::make_object<tonlib_api::updateSyncState>(tonlib_api::make_object<tonlib_api::syncStateInProgress>(
+              state.from_seqno, state.to_seqno, state.current_seqno)));
+      break;
+    default:
+      LOG(ERROR) << "Unknown LastBlockSyncState type " << state.type;
   }
 }
 
@@ -355,6 +383,9 @@ void TonlibClient::init_last_block() {
     }
     void on_state_changed(LastBlockState state) override {
       send_closure(client_, &TonlibClient::update_last_block_state, std::move(state), config_generation_);
+    }
+    void on_sync_state_changed(LastBlockSyncState sync_state) override {
+      send_closure(client_, &TonlibClient::update_sync_state, std::move(sync_state), config_generation_);
     }
 
    private:
@@ -378,18 +409,22 @@ void TonlibClient::init_last_block() {
     state = r_state.move_as_ok();
   }
 
-  raw_last_block_ =
-      td::actor::create_actor<LastBlock>("LastBlock", get_client_ref(), std::move(state), config_,
-                                         td::make_unique<Callback>(td::actor::actor_shared(this), config_generation_));
+  raw_last_block_ = td::actor::create_actor<LastBlock>(
+      td::actor::ActorOptions().with_name("LastBlock").with_poll(false), get_client_ref(), std::move(state), config_,
+      source_.get_cancellation_token(), td::make_unique<Callback>(td::actor::actor_shared(this), config_generation_));
 }
 
 void TonlibClient::on_result(td::uint64 id, tonlib_api::object_ptr<tonlib_api::Object> response) {
-  VLOG(tonlib_query) << "Tonlib answer query " << td::tag("id", id) << " " << to_string(response);
+  VLOG_IF(tonlib_query, id != 0) << "Tonlib answer query " << td::tag("id", id) << " " << to_string(response);
+  VLOG_IF(tonlib_query, id == 0) << "Tonlib update " << to_string(response);
   if (response->get_id() == tonlib_api::error::ID) {
     callback_->on_error(id, tonlib_api::move_object_as<tonlib_api::error>(response));
     return;
   }
   callback_->on_result(id, std::move(response));
+}
+void TonlibClient::on_update(object_ptr<tonlib_api::Object> response) {
+  on_result(0, std::move(response));
 }
 
 void TonlibClient::request(td::uint64 id, tonlib_api::object_ptr<tonlib_api::Function> function) {
@@ -414,7 +449,9 @@ void TonlibClient::request(td::uint64 id, tonlib_api::object_ptr<tonlib_api::Fun
 
   downcast_call(*function, [this, self = this, id](auto& request) {
     using ReturnType = typename std::decay_t<decltype(request)>::ReturnType;
-    td::Promise<ReturnType> promise = [actor_id = actor_id(self), id](td::Result<ReturnType> r_result) {
+    ref_cnt_++;
+    td::Promise<ReturnType> promise = [actor_id = actor_id(self), id,
+                                       tmp = actor_shared(self)](td::Result<ReturnType> r_result) {
       tonlib_api::object_ptr<tonlib_api::Object> result;
       if (r_result.is_error()) {
         result = status_to_tonlib_api(r_result.error());
@@ -444,7 +481,7 @@ tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::static_request(
 
   tonlib_api::object_ptr<tonlib_api::Object> response;
   downcast_call(*function, [&response](auto& request) { response = TonlibClient::do_static_request(request); });
-  VLOG(tonlib_query) << "  answer static query " << to_string(function);
+  VLOG(tonlib_query) << "  answer static query " << to_string(response);
   return response;
 }
 
@@ -466,6 +503,9 @@ bool TonlibClient::is_static_request(td::int32 id) {
     case tonlib_api::setLogTagVerbosityLevel::ID:
     case tonlib_api::getLogTagVerbosityLevel::ID:
     case tonlib_api::addLogMessage::ID:
+    case tonlib_api::encrypt::ID:
+    case tonlib_api::decrypt::ID:
+    case tonlib_api::kdf::ID:
       return true;
     default:
       return false;
@@ -643,6 +683,7 @@ td::Status TonlibClient::do_request(const tonlib_api::close& request,
                                     td::Promise<object_ptr<tonlib_api::ok>>&& promise) {
   CHECK(state_ != State::Closed);
   state_ = State::Closed;
+  source_.cancel();
   promise.set_value(tonlib_api::make_object<tonlib_api::ok>());
   return td::Status::OK();
 }
@@ -1253,6 +1294,9 @@ class GenericSendGrams : public TonlibQueryActor {
   void start_up() override {
     check(do_start_up());
   }
+  void hangup() override {
+    check(TonlibError::Cancelled());
+  }
 
   td::Status do_start_up() {
     if (!send_grams_.destination_) {
@@ -1419,6 +1463,15 @@ td::Status TonlibClient::do_request(tonlib_api::generic_sendGrams& request,
   auto id = actor_id_++;
   actors_[id] = td::actor::create_actor<GenericSendGrams>("GenericSendGrams", actor_shared(this, id),
                                                           std::move(request), std::move(promise));
+  return td::Status::OK();
+}
+
+td::Status TonlibClient::do_request(tonlib_api::sync& request, td::Promise<object_ptr<tonlib_api::ok>>&& promise) {
+  client_.with_last_block([promise = std::move(promise)](td::Result<LastBlockState> r_last_block) mutable {
+    TRY_RESULT_PROMISE(promise, last_block, std::move(r_last_block));
+    (void)last_block;
+    promise.set_value(tonlib_api::make_object<tonlib_api::ok>());
+  });
   return td::Status::OK();
 }
 
@@ -1631,6 +1684,30 @@ tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(const
 tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(const tonlib_api::addLogMessage& request) {
   Logging::add_message(request.verbosity_level_, request.text_);
   return tonlib_api::make_object<tonlib_api::ok>();
+}
+
+tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(const tonlib_api::encrypt& request) {
+  return tonlib_api::make_object<tonlib_api::data>(
+      SimpleEncryption::encrypt_data(request.decrypted_data_, request.secret_));
+}
+
+tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(const tonlib_api::decrypt& request) {
+  auto r_data = SimpleEncryption::decrypt_data(request.encrypted_data_, request.secret_);
+  if (r_data.is_ok()) {
+    return tonlib_api::make_object<tonlib_api::data>(r_data.move_as_ok());
+  } else {
+    return status_to_tonlib_api(r_data.error().move_as_error_prefix(TonlibError::KeyDecrypt()));
+  }
+}
+
+tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(const tonlib_api::kdf& request) {
+  auto max_iterations = 10000000;
+  if (request.iterations_ < 0 || request.iterations_ > max_iterations) {
+    return status_to_tonlib_api(
+        TonlibError::InvalidField("iterations", PSLICE() << "must be between 0 and " << max_iterations));
+  }
+  return tonlib_api::make_object<tonlib_api::data>(
+      SimpleEncryption::kdf(request.password_, request.salt_, request.iterations_));
 }
 
 }  // namespace tonlib

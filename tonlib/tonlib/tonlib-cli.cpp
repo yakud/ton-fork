@@ -58,6 +58,9 @@ class TonlibCli : public td::actor::Actor {
   bool is_closing_{false};
   td::uint32 ref_cnt_{1};
 
+  td::int64 snd_bytes_{0};
+  td::int64 rcv_bytes_{0};
+
   void start_up() override {
     class Cb : public td::TerminalIO::Callback {
      public:
@@ -91,7 +94,7 @@ class TonlibCli : public td::actor::Actor {
       td::actor::ActorShared<TonlibCli> id_;
     };
     ref_cnt_++;
-    client_ = td::actor::create_actor<tonlib::TonlibClient>("Tonlib", td::make_unique<TonlibCb>(actor_shared(this)));
+    client_ = td::actor::create_actor<tonlib::TonlibClient>("Tonlib", td::make_unique<TonlibCb>(actor_shared(this, 1)));
 
     td::mkdir(options_.key_dir).ignore();
 
@@ -141,6 +144,9 @@ class TonlibCli : public td::actor::Actor {
   void hangup_shared() override {
     CHECK(ref_cnt_ > 0);
     ref_cnt_--;
+    if (get_link_token() == 1) {
+      io_.reset();
+    }
     try_stop();
   }
   void try_stop() {
@@ -218,7 +224,6 @@ class TonlibCli : public td::actor::Actor {
       generate_key();
     } else if (cmd == "exit") {
       is_closing_ = true;
-      io_.reset();
       client_.reset();
       ref_cnt_--;
       try_stop();
@@ -258,15 +263,32 @@ class TonlibCli : public td::actor::Actor {
       auto addr = parser.read_word();
       auto bounceable = parser.read_word();
       set_bounceable(addr, to_bool(bounceable, true));
+    } else if (cmd == "netstats") {
+      dump_netstats();
+    } else if (cmd == "sync") {
+      sync();
     }
   }
 
+  void sync() {
+    using tonlib_api::make_object;
+    send_query(make_object<tonlib_api::sync>(), [](auto r_ok) {
+      LOG_IF(ERROR, r_ok.is_error()) << r_ok.error();
+      if (r_ok.is_ok()) {
+        td::TerminalIO::out() << "synchronized\n";
+      }
+    });
+  }
+  void dump_netstats() {
+    td::TerminalIO::out() << td::tag("snd", td::format::as_size(snd_bytes_)) << "\n";
+    td::TerminalIO::out() << td::tag("rcv", td::format::as_size(rcv_bytes_)) << "\n";
+  }
   void on_adnl_result(td::uint64 id, td::Result<td::BufferSlice> res) {
     using tonlib_api::make_object;
     if (res.is_ok()) {
+      rcv_bytes_ += res.ok().size();
       send_query(make_object<tonlib_api::onLiteServerQueryResult>(id, res.move_as_ok().as_slice().str()),
                  [](auto r_ok) { LOG_IF(ERROR, r_ok.is_error()) << r_ok.error(); });
-      LOG(ERROR) << "!!!";
     } else {
       send_query(make_object<tonlib_api::onLiteServerQueryError>(
                      id, make_object<tonlib_api::error>(res.error().code(), res.error().message().str())),
@@ -279,6 +301,7 @@ class TonlibCli : public td::actor::Actor {
       if (result->get_id() == tonlib_api::updateSendLiteServerQuery::ID) {
         auto update = tonlib_api::move_object_as<tonlib_api::updateSendLiteServerQuery>(std::move(result));
         CHECK(!raw_client_.empty());
+        snd_bytes_ += update->data_.size();
         send_closure(raw_client_, &ton::adnl::AdnlExtClient::send_query, "query", td::BufferSlice(update->data_),
                      td::Timestamp::in(5),
                      [actor_id = actor_id(this), id = update->id_](td::Result<td::BufferSlice> res) {
@@ -800,7 +823,7 @@ class TonlibCli : public td::actor::Actor {
   }
   void transfer(Address from, Address to, td::uint64 grams, td::Slice password, td::Slice message,
                 bool allow_send_to_uninited) {
-    auto r_sz = td::to_integer_safe<td::size_t>(message);
+    auto r_sz = td::to_integer_safe<size_t>(message);
     auto msg = message.str();
     if (r_sz.is_ok()) {
       msg = std::string(r_sz.ok(), 'Z');
