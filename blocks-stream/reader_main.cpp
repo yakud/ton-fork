@@ -13,7 +13,12 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <condition_variable>
+#include <string>
+#include <thread>
+#include <mutex>
 #include <boost/asio.hpp>
+#include <cstdlib>
 
 void parse_block(const td::Ref<vm::Cell>& root) {
     std::ostringstream outp;
@@ -142,69 +147,7 @@ void parse_block(const td::Ref<vm::Cell>& root) {
 
 
     std::cout << std::endl;
-//
-//    t_BlockExtra.print_ref(pp, cs.fetch_ref())
-
-//    pp.field("extra")
-//    && t_BlockExtra.print_ref(pp, cs.fetch_ref())
-
-
-    // field info
-//    block::gen::t_BlockInfo.print_ref(pp, )
-//    auto cs_info = load_cell_slice_special(ref_info, is_special);
-//
-//
-//
-//    t_BlockInfo.print_ref(pp, cs.fetch_ref())
-////
-//    pp.field("info")
-//    &&
-
-//    pp.open("block") &&
-//    pp.fetch_int_field(cs, 32, "global_id");
-
-//    print_skip(pp, cs) && (cs.empty_ext() || pp.fail("extra data in cell"));
-
-    /*
-       *
-       * bool Block::print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const {
-    return cs.fetch_ulong(32) == 0x11ef55aa
-        && pp.open("block")
-        && pp.fetch_int_field(cs, 32, "global_id")
-        && pp.field("info")
-        && t_BlockInfo.print_ref(pp, cs.fetch_ref())
-        && pp.field("value_flow")
-        && t_ValueFlow.print_ref(pp, cs.fetch_ref())
-        && pp.field("state_update")
-        && t_MERKLE_UPDATE_ShardState.print_ref(pp, cs.fetch_ref())
-        && pp.field("extra")
-        && t_BlockExtra.print_ref(pp, cs.fetch_ref())
-        && pp.close();
-  }
-       */
-
-//        cs.fetch_ulong(32) == 0x11ef55aa
-//        && pp.open("block")
-//        && pp.fetch_int_field(cs, 32, "global_id")
-//        && pp.field("info")
-//        && t_BlockInfo.print_ref(pp, cs.fetch_ref())
-//        && pp.field("value_flow")
-//        && t_ValueFlow.print_ref(pp, cs.fetch_ref())
-//        && pp.field("state_update")
-//        && t_MERKLE_UPDATE_ShardState.print_ref(pp, cs.fetch_ref())
-//        && pp.field("extra")
-//        && t_BlockExtra.print_ref(pp, cs.fetch_ref())
-//        && pp.close();
-
-
-
-//        if (is_special) {
-//            return print_special(pp, cs);
-//        } else {
-//
-//        }
 }
-
 
 void print_block(const char *data, uint32_t size) {
     auto res = vm::std_boc_deserialize(td::BufferSlice(data, std::size_t(size)));
@@ -224,7 +167,6 @@ void print_block(const char *data, uint32_t size) {
         std::cout << "block contents is " << std::endl;
 
         parse_block(root);
-
 //        std::ostringstream outp;
 //        block::gen::t_Block.print_ref(outp, root);
 //        vm::load_cell_slice(root).print_rec(outp);
@@ -234,7 +176,7 @@ void print_block(const char *data, uint32_t size) {
 
 }
 
-const uint32_t BUFFER_SIZE_BLOCK = 10485760;
+const uint32_t BUFFER_SIZE_BLOCK = 50 * 1024 * 1024;
 
 template <class T> class BlockingQueue: public std::queue<T> {
 public:
@@ -281,17 +223,32 @@ private:
 using boost::asio::ip::tcp;
 enum { max_length = 1000 * 1024 };
 
-int runSocket(BlockingQueue<std::string> *blocksQueue) {
-    std::string ws_host = "0.0.0.0";
-    std::string ws_port = "7315";
+std::basic_string<char> deserialize_block(std::string block_data, int size) {
+    auto res = vm::std_boc_deserialize(td::BufferSlice(block_data.data(), std::size_t(size)));
+    if (res.is_error()) {
+        std::cout << "CANNOT DESERIALIZE BLOCK: " << res.move_as_error().error().public_message() << std::endl;
+        return "";
+    }
 
-    std::string request = "Hello my GO!";
+    auto root = res.move_as_ok();
+    std::ostringstream outp;
+
+//    now = std::chrono::system_clock::now();
+    block::gen::t_Block.print_ref(outp, root);
+//    mu = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - now);
+//    meanPrintPretty += mu.count();
+//    countPrintPretty++;
+
+    return outp.str();
+}
+
+int runSocket(BlockingQueue<std::string> *blocksQueue, std::string ws_host, std::string ws_port, int id) {
 
     try
     {
         boost::asio::io_service io_service;
 
-        std::cout << "Start resolve\n";
+        std::cout << "Start resolve" << ws_host << ":" << ws_port << "\n";
         tcp::resolver resolver(io_service);
         tcp::resolver::query query(tcp::v4(), ws_host, ws_port);
         tcp::resolver::iterator iterator = resolver.resolve(query);
@@ -304,72 +261,141 @@ int runSocket(BlockingQueue<std::string> *blocksQueue) {
         std::cout << "Socket connected\n";
 
 //        std::string nextMessage;
-        while (1) {
+        uint32_t num;
+        std::ostringstream msg_buffer;
+
+        unsigned long int message_count = 0;
+        unsigned int buffer_size = 0;
+        std::string next_message;
+
+//        std::basic_string<char>
+//        std::vector<char> msg_buffer(104857600);
+
+        while (true) {
+            next_message = blocksQueue->pop();
+
+
+//            auto now = std::chrono::system_clock::now();
+            auto next_message_pretty = deserialize_block(next_message, int(next_message.size()));
+//            auto diffMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - now);
+//            std::cout << id << "] deserialize_block for:  " << diffMs.count() << " ms; " << int(next_message_pretty.size()) << "; rate: "
+//                << float(next_message.size()) / float(diffMs.count()) << "\n";
+
+            /*
+            num = uint32_t(next_message.size());
             std::ostringstream msg_buffer;
-            auto nextMessage = blocksQueue->pop();
-
-            auto num = uint32_t(nextMessage.size());
             msg_buffer.write(reinterpret_cast<const char *>(&num), sizeof(num));
-            msg_buffer << nextMessage;
 
-            if (auto writed = boost::asio::write(s,
-                    boost::asio::buffer(
-                            msg_buffer.str(), sizeof(num) + nextMessage.size() * sizeof(std::string::value_type))
-            ) == 0) {
-                break;
-            } else {
-                std::cout << "Send message: " <<  nextMessage.size() <<  "\n";
+            if (!boost::asio::write(s, boost::asio::buffer(msg_buffer.str(), sizeof(num) ))) {
+                std::cout << "Send message error index!" <<  "\n";
+                return 1;
             }
-        }
+            msg_buffer.str("");
+            msg_buffer.clear();
+            if (!boost::asio::write(s, boost::asio::buffer( next_message, num))) {
+                std::cout << "Send message error data!" <<  "\n";
+                return 1;
+            }
+            next_message.clear();
 
-//        boost::asio::write(s, boost::asio::buffer(request, request.size() * sizeof(std::string::value_type)));
-//
-//        std::cout << "Done write\n";
-//        char data[max_length];
-//        boost::system::error_code error;
-//        size_t length = s.read_some(boost::asio::buffer(data), error);
-//        if (error == boost::asio::error::eof) {
-//            s.close();
-//            std::cout << "Connection closed cleanly by peer." << std::endl;
-//            return 0;
-//        }
-//
-//        std::cout << "Reply is: ";
-//        std::cout.write(data, length);
-//        std::cout << "\n";
+            message_count++;
+            if (message_count % 100 == 0) {
+                std::cout  << id << "] Total messages send:" << message_count <<  "; queue size: " << blocksQueue->size() << "\n";
+            }
+
+            -----*/
+            num = uint32_t(next_message_pretty.size());
+            msg_buffer.write(reinterpret_cast<const char *>(&num), sizeof(num));
+            msg_buffer.write(next_message_pretty.data(), num);
+            buffer_size += sizeof(num) + num;
+            message_count++;
+
+            next_message.clear();
+
+            // TODO: dynamic bulk buffer
+//            if (message_count % 1 == 0 && buffer_size > 0) {
+                if (!boost::asio::write(s, boost::asio::buffer( msg_buffer.str(), buffer_size))) {
+                    std::cout << "Send message error!" <<  "\n";
+                    return 1;
+                }
+
+                buffer_size = 0;
+                msg_buffer.str("");
+                msg_buffer.clear();
+
+                if (message_count % 1000 == 0) {
+                    std::cout << id << "] Total messages send:" << message_count <<  "; queue size: " << blocksQueue->size() << "\n";
+                }
+//            }
+        }
     }
     catch (std::exception& e)
     {
         std::cerr << "Exception: " << e.what() << "\n";
+        std::exit(1);
     }
 
     return 0;
 }
 
+template <unsigned N>
+double approxRollingAverage (double avg, double input) {
+    avg -= avg/N;
+    avg += input/N;
+    return avg;
+}
 
+// https://github.com/jupp0r/prometheus-cpp needed
 int main(int argc, char *argv[]) {
+    auto logFile = argv[1];
+    auto logFileIndex = argv[2];
+
+    errno = 0;
+    char *endptr;
+    long int index_seek = strtol(argv[3], &endptr, 10);
+    if (endptr == argv[3]) {
+        std::cerr << "Invalid number seek: " << argv[3] << '\n';
+    } else if (*endptr) {
+        std::cerr << "Trailing characters after number: " << argv[3] << '\n';
+    } else if (errno == ERANGE) {
+        std::cerr << "Number out of range: " << argv[3] << '\n';
+    }
+
+    auto ws_host = argv[4];
+    auto ws_port = argv[5];
+
+    std::cout << "Index seek: " << index_seek << std::endl;
+    std::cout << "Start reading log: " << logFile << std::endl;
+    std::cout << "Start reading index: " << logFileIndex << std::endl;
+
     BlockingQueue<std::string> blocksQueue(1000);
+//    for (auto i = 0; i < 5; i ++) {
+//        std::thread(runSocket, &blocksQueue, ws_host, ws_port, i);
+//    }
+    std::thread t1(runSocket, &blocksQueue, ws_host, ws_port, 1);
+    std::thread t2(runSocket, &blocksQueue, ws_host, ws_port, 2);
+    std::thread t3(runSocket, &blocksQueue, ws_host, ws_port, 3);
+//    std::thread t4(runSocket, &blocksQueue, ws_host, ws_port, 4);
+//    std::thread t5(runSocket, &blocksQueue, ws_host, ws_port, 5);
+//    std::thread t6(runSocket, &blocksQueue, ws_host, ws_port, 6);
+//    std::thread t7(runSocket, &blocksQueue, ws_host, ws_port, 7);
+//    std::thread t8(runSocket, &blocksQueue, ws_host, ws_port, 8);
+//    std::thread t9(runSocket, &blocksQueue, ws_host, ws_port, 9);
+//    std::thread t10(runSocket, &blocksQueue, ws_host, ws_port, 10);
+//    std::thread t11(runSocket, &blocksQueue, ws_host, ws_port, 11);
+//    std::thread t12(runSocket, &blocksQueue, ws_host, ws_port, 12);
+//    std::thread t13(runSocket, &blocksQueue, ws_host, ws_port, 13);
+//    std::thread t14(runSocket, &blocksQueue, ws_host, ws_port, 14);
+//    std::thread t15(runSocket, &blocksQueue, ws_host, ws_port, 15);
 
-//    runSocket(blocksQueue);
-
-//    blocksQueue.push("hello");
-//    blocksQueue.push("world");
-//    blocksQueue.push("from C++");
-
-    std::thread t1(runSocket, &blocksQueue);
-
-//    t1.join();
-
-    // scp akisilev@46.4.4.150:/tmp/testlog.log .
-//    std::ifstream ifs ("/Users/user/ton-src/ton/blocks-stream/testlog.log", std::ifstream::in | std::ifstream::binary);
-    std::ifstream ifs ("/tmp/testlog.log", std::ifstream::in | std::ifstream::binary);
+    std::ifstream ifs (logFile, std::ifstream::in | std::ifstream::binary);
     if (!ifs.good()) {
         ifs.close();
         std::cout << "can not open file " << std::endl;
         return 1;
     }
 
-    std::ifstream ifsIndex ("/tmp/testlog.log.index", std::ifstream::in | std::ifstream::binary);
+    std::ifstream ifsIndex (logFileIndex, std::ifstream::in | std::ifstream::binary);
     if (!ifsIndex.good()) {
         ifsIndex.close();
         std::cout << "can not open file " << std::endl;
@@ -379,43 +405,89 @@ int main(int argc, char *argv[]) {
     std::vector<char> header_buffer(sizeof(uint32_t)); // create next block size buffer
     std::vector<char> block_buffer(BUFFER_SIZE_BLOCK); // create next block size buffer
 
-//    while (!ifsIndex.eof()) {
+//    if (index_seek > 0) {
+//        ifsIndex.seekg(index_seek-sizeof(uint32_t), std::ios::beg);
+//
+//        if (!ifsIndex.read(&header_buffer[0], sizeof(uint32_t))) {
+//            std::cout << "can not open file " << std::endl;
+//            return 1;
+//        }
+//        index_seek = ifsIndex.tellg();
+//        auto data_size = *(reinterpret_cast<uint32_t *>(header_buffer.data()));
+//    }
+
+
+    uint32_t data_size;
+    std::ostringstream outp;
+
+    vm::Ref<vm::Cell> root;
+    td::Result<vm::Ref<vm::Cell>> res;
+    long int rows = 0;
+
+    std::chrono::time_point<std::chrono::system_clock> now;
+    long meanPrintPretty = 0;
+    long countPrintPretty = 0;
+    std::chrono::duration<int64_t, std::ratio<1,1000>> mu;
+    long int index_seek_last = 0;
+
     while (true) {
         if (!ifsIndex.read(&header_buffer[0], sizeof(uint32_t))) {
-            usleep(5*1000);
+            ifsIndex.close();
+            sleep(1);
+            std::cout << "sleep after read index" << std::endl;
+
+            // reopen file and seek
+            ifsIndex.open(logFileIndex, std::ifstream::in | std::ifstream::binary);
+            if (!ifsIndex.good()) {
+                ifsIndex.close();
+                std::cout << "can not open file " << std::endl;
+                return 1;
+            }
+            ifsIndex.seekg(index_seek_last, std::ios::beg);
             continue;
         }
-        auto data_size = *(reinterpret_cast<uint32_t *>(header_buffer.data()));
-//        std::cout << "Data size:" << data_size << std::endl;
+        index_seek_last = ifsIndex.tellg();
+        data_size = *(reinterpret_cast<uint32_t *>(header_buffer.data()));
+
+        if (index_seek > index_seek_last) {
+            ifs.seekg(data_size, std::ios::cur);
+            rows ++;
+            if (rows % 100 == 0) {
+                std::cout << "skip last seek:" << index_seek_last << std::endl;
+            }
+            continue;
+        }
 
         try {
             if (!ifs.read(&block_buffer[0], data_size)) {
                 std::cout << "CANNOT READ BLOCK: " << std::endl;
                 continue;
             }
-
-            auto res = vm::std_boc_deserialize(td::BufferSlice(block_buffer.data(), std::size_t(data_size)));
+            /*
+            res = vm::std_boc_deserialize(td::BufferSlice(block_buffer.data(), std::size_t(data_size)));
             if (res.is_error()) {
                 std::cout << "CANNOT DESERIALIZE BLOCK: " << res.move_as_error().error().public_message() << std::endl;
                 continue;
-//                return 0;
             }
 
-            auto root = res.move_as_ok();
-            block::gen::Block::Record blk;
-            block::gen::BlockExtra::Record extra;
-            block::gen::BlockInfo::Record info;
+            root = res.move_as_ok();
 
-            if (!(tlb::unpack_cell(root, blk) && tlb::unpack_cell(blk.info, info) && tlb::unpack_cell(blk.extra, extra))) {
-                std::cout <<"CANNOT UNPACK HEADER FOR BLOCK " << std::endl;
-            } else {
-//                std::cout << "block contents is " << std::endl;
-                std::ostringstream outp;
-                block::gen::t_Block.print_ref(outp, root);
-                blocksQueue.push(outp.str());
-//                std::cout << outp.str();
-//                break;
-            }
+            now = std::chrono::system_clock::now();
+            block::gen::t_Block.print_ref(outp, root);
+            mu = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - now);
+            meanPrintPretty += mu.count();
+            countPrintPretty++;
+             */
+
+            std::string buff(&block_buffer[0], data_size);
+            blocksQueue.push(buff);
+
+            /*
+            outp.str("");
+            outp.clear();
+            root.release();
+            res.clear();
+             */
 
 //            print_block(block_buffer.data(), data_size);
         } catch (std::exception &e) {
@@ -424,12 +496,18 @@ int main(int argc, char *argv[]) {
         }
         header_buffer.clear();
         block_buffer.clear();
+
+        rows ++;
+        if (rows % 50 == 0) {
+            std::cout << "last seek:" << index_seek_last << std::endl;
+        }
     }
 
     std::cout << "Read end" << std::endl;
     ifs.close();
 
-    t1.join();
+//    t1.join();
+//    t2.join();
 
     return 0;
 }
