@@ -2957,6 +2957,13 @@ int main(int argc, char *argv[]) {
     return td::Status::OK();
   });
   p.add_option('u', "user", "change user", [&](td::Slice user) { return td::change_user(user); });
+  p.add_option('T', "streamfile", "stream blocks file", [&](td::Slice fname) {
+      if (!ton::ext::BlocksStream::GetInstance().Init(fname.data())) {
+          return td::Status::Error(ton::ErrorCode::error, "bad value for T (--streamfile): can not initialize blocks stream");
+      }
+      std::cout << "Stream init successful. Write to: " << fname.str() << std::endl;
+      return td::Status::OK();
+  });
   auto S = p.run(argc, argv);
   if (S.is_error()) {
     LOG(ERROR) << "failed to parse options: " << S.move_as_error();
@@ -2964,7 +2971,6 @@ int main(int argc, char *argv[]) {
   }
 
   // Blocks stream init
-  ton::ext::BlocksStream::GetInstance();
   std::thread t1(streamWorker);
 
   td::set_runtime_signal_handler(1, need_stats).ensure();
