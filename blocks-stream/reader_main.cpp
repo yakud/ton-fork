@@ -33,62 +33,14 @@
 #include <crypto/block/block-parse.h>
 #include <validator/impl/block.hpp>
 #include <csignal>
-
-const uint32_t BUFFER_SIZE_BLOCK = 50 * 1024 * 1024;
-
-template <class T> class BlockingQueue: public std::queue<T> {
-public:
-    BlockingQueue(int size) {
-        maxSize = size;
-    }
-
-    void push(T item) {
-        std::unique_lock<std::mutex> wlck(writerMutex);
-        while(Full())
-            isFull.wait(wlck);
-        std::queue<T>::push(item);
-        isEmpty.notify_all();
-    }
-
-    bool notEmpty() {
-        return !std::queue<T>::empty();
-    }
-
-    bool Full(){
-        return std::queue<T>::size() >= (uint64_t)maxSize;
-    }
-
-    T pop() {
-        std::unique_lock<std::mutex> lck(readerMutex);
-        while(std::queue<T>::empty()) {
-            isEmpty.wait(lck);
-        }
-        T value = std::queue<T>::front();
-        std::queue<T>::pop();
-        if(!Full())
-            isFull.notify_all();
-        return value;
-    }
-
-private:
-    int maxSize;
-    std::mutex readerMutex;
-    std::mutex writerMutex;
-    std::condition_variable isFull;
-    std::condition_variable isEmpty;
-};
+#include <blocks-stream/src/blocks-reader.hpp>
 
 using boost::asio::ip::tcp;
-//enum { max_length = 1000 * 1024 };
 
-
-static volatile sig_atomic_t sig_caught = 0;
+std::atomic<bool> sig_caught;
 void signal_handler( int signal_num ) {
     std::cout << "The interrupt signal is (" << signal_num << "). \n";
-//    auto sig = sig_caught.get();
-//    sig = 1;
-
-    sig_caught = 1;
+    sig_caught.store(true);
 }
 
 std::basic_string<char> deserialize_block(const std::string& block_data, int size) {
@@ -273,7 +225,7 @@ std::basic_string<char> deserialize_block(const std::string& block_data, int siz
     return outp.str();
 }
 
-int runSocket(BlockingQueue<std::string> *blocksQueue, std::string ws_host, std::string ws_port, int id) {
+int runSocket(ton::ext::BlockingQueue<std::string> *blocksQueue, std::string ws_host, std::string ws_port, int id) {
 
     try
     {
@@ -324,8 +276,8 @@ int runSocket(BlockingQueue<std::string> *blocksQueue, std::string ws_host, std:
             msg_buffer.str("");
             msg_buffer.clear();
 
-            if (message_count % 1000 == 0) {
-                std::cout << id << "] Total messages send:" << message_count <<  "; queue size: " << blocksQueue->size() << "\n";
+            if (message_count % 100 == 0) {
+                std::cout << id << "] Total messages send:" << message_count << "\n";
             }
 //            }
         }
@@ -339,157 +291,58 @@ int runSocket(BlockingQueue<std::string> *blocksQueue, std::string ws_host, std:
     return 0;
 }
 
-int runReader(BlockingQueue<std::string> *blocksQueue, std::ifstream *ifsLog, std::ifstream *ifsIndex, std::string logFileIndex, std::ofstream *ofsIndexSeek, long int index_seek) {
-    std::vector<char> header_buffer(sizeof(uint32_t)); // create next block size buffer
-    std::vector<char> block_buffer(BUFFER_SIZE_BLOCK); // create next block size buffer
-
-    uint32_t data_size;
-    std::ostringstream outp;
-
-    vm::Ref<vm::Cell> root;
-    td::Result<vm::Ref<vm::Cell>> res;
-    long int rows = 0;
-    long int index_seek_last = 0;
-
-    while (sig_caught == 0) {
-        if (!ifsIndex->read(&header_buffer[0], sizeof(uint32_t))) {
-            ifsIndex->close();
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
-            std::cout << "-";
-
-            // reopen file and seek
-            ifsIndex->open(logFileIndex, std::ifstream::in | std::ifstream::binary);
-            if (!ifsIndex->good()) {
-                ifsIndex->close();
-                std::cout << "can not open file " << std::endl;
-                return 1;
-            }
-            ifsIndex->seekg(index_seek_last, std::ios::beg);
-            continue;
-        }
-        index_seek_last = ifsIndex->tellg();
-        data_size = *(reinterpret_cast<uint32_t *>(header_buffer.data()));
-
-        if (index_seek > index_seek_last) {
-            ifsLog->seekg(data_size, std::ios::cur);
-            rows ++;
-//            if (rows % 50 == 0) {
-//                std::cout << "skip last seek:" << index_seek_last << std::endl;
-//            }
-            continue;
-        }
-
-        try {
-            if (!ifsLog->read(&block_buffer[0], data_size)) {
-                std::cout << "CANNOT READ BLOCK: " << std::endl;
-                continue;
-            }
-            std::string buff(&block_buffer[0], data_size);
-            blocksQueue->push(buff);
-        } catch (std::exception &e) {
-            std::cout << "EXCEPTION catch" << std::endl;
-            return 1;
-        }
-        header_buffer.clear();
-        block_buffer.clear();
-
-        ofsIndexSeek->seekp(0, std::ios::beg);
-        ofsIndexSeek->write(reinterpret_cast<const char *>(&index_seek_last), sizeof(index_seek_last));
-        ofsIndexSeek->flush();
-//        ofsIndexSeek.clear();
-
-        rows ++;
-        if (rows % 50 == 0) {
-            std::cout << "last seek:" << index_seek_last << std::endl;
-        }
-    }
-
-    std::cout << "Reader end" << std::endl;
-//    ifsLog->close();
-//    ifsIndex->close();
-
-    return 0;
-}
-
 // https://github.com/jupp0r/prometheus-cpp needed
 int main(int argc, char *argv[]) {
     auto logFile = argv[1];
     auto logFileIndex = argv[2];
-    std::string logFileIndexSeek = std::string(logFileIndex) + ".seek";
-
     auto ws_host = argv[3];
     auto ws_port = argv[4];
 
+    ton::ext::BlockingQueue<std::string> queue(1000);
+    ton::ext::BlocksReaderConfig conf = {
+            .log_filename = logFile,
+            .index_filename = logFileIndex
+    };
+
+    ton::ext::BlocksReader blocksReader(&conf, &queue);
+
+    try {
+        blocksReader.LoadSeek();
+    } catch (std::system_error &e) {
+        std::cout << "error load seek: " << e.what() << std::endl;
+    }
+    blocksReader.OpenFiles();
+
+    std::cout << "start reading index from: " << conf.index_seek << std::endl;
+    std::cout << "start reading log from: " << conf.log_seek << std::endl;
     std::cout << "log: " << logFile << std::endl;
     std::cout << "index: " << logFileIndex << std::endl;
-    std::cout << "index seek file: " << logFileIndexSeek << std::endl;
 
-    std::ifstream ifs (logFile, std::ifstream::in | std::ifstream::binary);
-    if (!ifs.good()) {
-        ifs.close();
-        std::cout << "can not open file " << std::endl;
-        return 1;
-    }
+    std::thread t1(runSocket, &queue, ws_host, ws_port, 1);
+    std::thread t2(runSocket, &queue, ws_host, ws_port, 2);
+    std::thread t3(runSocket, &queue, ws_host, ws_port, 3);
+    auto reader_thread = blocksReader.Spawn();
 
-    std::ifstream ifsIndex (logFileIndex, std::ifstream::in | std::ifstream::binary);
-    if (!ifsIndex.good()) {
-        ifsIndex.close();
-        std::cout << "can not open file " << std::endl;
-        return 1;
-    }
+    signal(SIGTERM, signal_handler);
+    signal(SIGINT, signal_handler);
+    while(true) {
+        if (sig_caught.load()) {
+            std::cout << "caught a SIG.\n";
+            std::cout << "Waiting for sending all data from buffers\n";
+            queue.Close();
+            blocksReader.Stop();
+            reader_thread.join();
 
-    long int index_seek = 0;
-    std::ifstream ifsIndexSeek (logFileIndexSeek, std::ifstream::in | std::ifstream::binary);
-    if (ifsIndexSeek.good()) {
-        // read index skip from file
-        std::vector<char> index_seek_file(sizeof(long int));
-        if (ifsIndexSeek.read(&index_seek_file[0], sizeof(long int))) {
-            index_seek = *(reinterpret_cast<uint32_t *>(index_seek_file.data()));
-            std::cout << "read seek from file: " << index_seek << std::endl;
-        } else {
-            std::cout << "error read ifsIndexSeek" << std::endl;
-        }
-        ifsIndexSeek.close();
-    } else {
-        ifsIndexSeek.close();
-        std::cout << "Index seek file is empty, continue" << std::endl;
-    }
-
-    std::ofstream ofsIndexSeek (logFileIndexSeek, std::ofstream::in|std::ofstream::out|std::ofstream::binary| std::ofstream::ate);
-    if (!ofsIndexSeek.good()) {
-        ofsIndexSeek.close();
-        std::cout << "can not open file ofsIndexSeek: " << logFileIndexSeek << std::endl;
-        return 1;
-    }
-
-    //todo: refac
-    BlockingQueue<std::string> blocksQueue(1000);
-    std::thread t1(runSocket, &blocksQueue, ws_host, ws_port, 1);
-    std::thread t2(runSocket, &blocksQueue, ws_host, ws_port, 2);
-    std::thread t3(runSocket, &blocksQueue, ws_host, ws_port, 3);
-    std::thread t4(runReader, &blocksQueue, &ifs, &ifsIndex, std::string(logFileIndex), &ofsIndexSeek, index_seek);
-
-    void (*prev_handler)(int);
-    prev_handler = signal(SIGTERM, signal_handler);
-    while(1) {
-        if (sig_caught) {
-            std::cout << "caught a SIGTERM.\n";
-
-            while (!blocksQueue.empty()) {
-                std::cout << "Waiting for sending all data from buffers\n";
-                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            while (queue.Size() > 0) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1000));
             }
+            std::cout << "Done!\n";
 
             break;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
-    t4.join();
-
-    t1.detach();
-    t2.detach();
-    t3.detach();
     std::terminate();
 
     return 0;

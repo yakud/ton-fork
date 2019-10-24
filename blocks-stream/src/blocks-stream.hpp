@@ -5,7 +5,11 @@
 #include <fstream>
 #include <mutex>
 #include <iostream>
+#include <sstream>
 #include <queue>
+#include <condition_variable>
+#include <atomic>
+#include "blocking-queue.hpp"
 
 #ifndef TON_BLOCKSSTREAM_H
 #define TON_BLOCKSSTREAM_H
@@ -14,48 +18,6 @@ using namespace std;
 
 namespace ton {
 namespace ext {
-
-template <class T> class BlockingQueue: public std::queue<T> {
-public:
-    BlockingQueue(int size) {
-        maxSize = size;
-    }
-
-    void push(T item) {
-        std::unique_lock<std::mutex> wlck(writerMutex);
-        while(Full())
-            isFull.wait(wlck);
-        std::queue<T>::push(item);
-        isEmpty.notify_all();
-    }
-
-    bool notEmpty() {
-        return !std::queue<T>::empty();
-    }
-
-    bool Full(){
-        return std::queue<T>::size() >= (uint64_t)maxSize;
-    }
-
-    T pop() {
-        std::unique_lock<std::mutex> lck(readerMutex);
-        while(std::queue<T>::empty()) {
-            isEmpty.wait(lck);
-        }
-        T value = std::queue<T>::front();
-        std::queue<T>::pop();
-        if(!Full())
-            isFull.notify_all();
-        return value;
-    }
-
-private:
-    int maxSize;
-    std::mutex readerMutex;
-    std::mutex writerMutex;
-    std::condition_variable isFull;
-    std::condition_variable isEmpty;
-};
 
 class BlocksStream {
 public:
@@ -99,7 +61,7 @@ public:
 
             body_buffer << nextMessage;
 
-            uint32_t num = uint32_t(nextMessage.length());
+            auto num = uint32_t(nextMessage.length());
             header_buffer.write(reinterpret_cast<const char *>(&num), sizeof(num));
 
             outfile << body_buffer.str();

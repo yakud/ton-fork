@@ -18,16 +18,16 @@ FIND_PACKAGE(Boost 1.65.1 REQUIRED COMPONENTS
         thread unit_test_framework filesystem date_time system iostreams program_options)
 
 set(BLOCKS_STREAM_SOURCE
-        src/blocks-stream.cpp
         src/blocks-stream.hpp
-        src/blocks_reader.cpp
-        src/blocks_reader.hpp
-        reader_main.cpp
-        main.cpp)
+        src/blocks-stream.cpp
+        src/blocks-reader.hpp
+        src/blocks-reader.cpp
+        src/blocking-queue.hpp
+)
 
 #add_executable(blocks-stream ${BLOCKS_STREAM_SOURCE})
-add_executable(blocks-stream-reader reader_main.cpp)
-add_executable(blocks-stream-reader-simple main.cpp)
+add_executable(blocks-stream-reader reader_main.cpp ${BLOCKS_STREAM_SOURCE})
+add_executable(blocks-stream-reader-simple main.cpp ${BLOCKS_STREAM_SOURCE})
 
 target_link_libraries(blocks-stream-reader
         tdutils tdutils tdactor adnllite tl_api tl_lite_api tl-lite-utils ton_crypto ton_block dht overlay

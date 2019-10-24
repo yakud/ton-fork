@@ -24,6 +24,7 @@
 #include <crypto/block/block-parse.h>
 #include <validator/impl/block.hpp>
 #include <common/checksum.h>
+#include <blocks-stream/src/blocks-reader.hpp>
 
 void parse_block(const td::Ref<vm::Cell>& root) {
     std::ostringstream outp;
@@ -510,113 +511,152 @@ void print_block_custom(const char *data, uint32_t size) {
     }
 }
 
+
+//    long int num = 14997600;
+//    ifsIndexSkip.write(reinterpret_cast<const char *>(&num), sizeof(num));
+//    ifsIndexSkip.flush();
+//    ifsIndexSkip.clear();
+//    ifsIndexSkip.seekp(0, std::ios::beg);
+//    return 1;
 int main(int argc, char *argv[]) {
-    auto logFile = "/tmp/blocks.log.part";
-    auto logFileIndex = "/tmp/blocks.log.index.part";
-    auto logFileIndexSkip = "/Users/user/ton-src/ton/blocks-stream/blocks.log.index.skip";
+    std::string  logFile = "/tmp/blocks.log.part";
+    std::string logFileIndex = "/tmp/blocks.log.index.part";
 
-    std::cout << "Start reading log: " << logFile << std::endl;
-    std::cout << "Start reading index: " << logFileIndex << std::endl;
+    ton::ext::BlockingQueue<std::string> queue(100);
+    ton::ext::BlocksReaderConfig conf = {
+            .log_filename = logFile,
+            .index_filename = logFileIndex
+    };
 
-    std::ifstream ifs (logFile, std::ifstream::in | std::ifstream::binary);
-    if (!ifs.good()) {
-        ifs.close();
-        std::cout << "can not open file " << std::endl;
-        return 1;
+    ton::ext::BlocksReader blocksReader(&conf, &queue);
+
+    try {
+        blocksReader.LoadSeek();
+        blocksReader.OpenFiles();
+    } catch (std::system_error &e) {
+        std::cout << "error load seek: " << e.what() << std::endl;
     }
 
-    std::ifstream ifsIndex (logFileIndex, std::ifstream::in | std::ifstream::binary);
-    if (!ifsIndex.good()) {
-        ifsIndex.close();
-        std::cout << "can not open file " << std::endl;
-        return 1;
+    std::cout << "start reading index from: " << conf.index_seek << std::endl;
+    std::cout << "start reading log from: " << conf.log_seek << std::endl;
+
+    auto reader_thread = blocksReader.Spawn();
+
+    int c = 10;
+    while (--c > 0) {
+        auto msg = queue.pop();
+        print_block_custom(msg.c_str(), msg.size());
+        std::cout << "msg size: " << msg.size() << std::endl;
     }
+    std::cout << "stopping..." << std::endl;
+    queue.Close();
+    blocksReader.Stop();
 
-    std::ofstream ifsIndexSkip (logFileIndexSkip, std::ifstream::out | std::ifstream::binary);
-    if (!ifsIndex.good()) {
-        ifsIndex.close();
-        std::cout << "can not open file logFileIndexSkip" << std::endl;
-        return 1;
-    }
-
-    long int num = 14997600;
-    ifsIndexSkip.write(reinterpret_cast<const char *>(&num), sizeof(num));
-    ifsIndexSkip.flush();
-    ifsIndexSkip.clear();
-    ifsIndexSkip.seekp(0, std::ios::beg);
-    return 1;
-
-    std::vector<char> header_buffer(sizeof(uint32_t)); // create next block size buffer
-    std::vector<char> block_buffer(50 * 1024 * 1024); // create next block size buffer
-
-    uint32_t data_size;
-    std::ostringstream outp;
-
-    vm::Ref<vm::Cell> root;
-    td::Result<vm::Ref<vm::Cell>> res;
-    long int rows = 0;
-    long int index_seek = 0;
-    long int index_seek_last = 0;
-
-    while (true) {
-        if (!ifsIndex.read(&header_buffer[0], sizeof(uint32_t))) {
-            ifsIndex.close();
-            sleep(1);
-            std::cout << "sleep after read index" << std::endl;
-
-            // reopen file and seek
-            ifsIndex.open(logFileIndex, std::ifstream::in | std::ifstream::binary);
-            if (!ifsIndex.good()) {
-                ifsIndex.close();
-                std::cout << "can not open file " << std::endl;
-                return 1;
-            }
-            ifsIndex.seekg(index_seek_last, std::ios::beg);
-            continue;
-        }
-        index_seek_last = ifsIndex.tellg();
-        data_size = *(reinterpret_cast<uint32_t *>(header_buffer.data()));
-
-        if (index_seek > index_seek_last) {
-            ifs.seekg(data_size, std::ios::cur);
-            rows ++;
-            if (rows % 100 == 0) {
-                std::cout << "skip last seek:" << index_seek_last << std::endl;
-            }
-            continue;
-        }
-
-        try {
-            if (!ifs.read(&block_buffer[0], data_size)) {
-                std::cout << "CANNOT READ BLOCK: " << std::endl;
-                exit(1);
-                continue;
-            }
-//            std::string buff(&block_buffer[0], data_size);
-//            blocksQueue.push(buff);
-            print_block_custom(&block_buffer[0], data_size);
-        } catch (std::exception &e) {
-            std::cout << "EXCEPTION catch" << std::endl;
-            break;
-        }
-        header_buffer.clear();
-        block_buffer.clear();
-
-        rows ++;
-        if (rows % 50 == 0) {
-            std::cout << "last seek:" << index_seek_last << std::endl;
-        }
-
-        ifsIndexSkip << index_seek_last;
-        ifsIndexSkip.flush();
-        ifsIndexSkip.clear();
-        ifsIndexSkip.seekp(0, std::ios::beg);
-        std::cout <<  index_seek_last << std::endl;
-    }
-
-    std::cout << "Read end" << std::endl;
-    ifs.close();
+    std::cout << "waiting reader..." << std::endl;
+    reader_thread.join();
+    std::cout << "stoped!" << std::endl;
 
 
-    return 0;
+//    blocksReader.Run
+
+
+//    std::cout << "Start reading log: " << logFile << std::endl;
+//    std::cout << "Start reading index: " << logFileIndex << std::endl;
+//
+//    std::ifstream ifs (logFile, std::ifstream::in | std::ifstream::binary);
+//    if (!ifs.good()) {
+//        ifs.close();
+//        std::cout << "can not open file " << std::endl;
+//        return 1;
+//    }
+//
+//    std::ifstream ifsIndex (logFileIndex, std::ifstream::in | std::ifstream::binary);
+//    if (!ifsIndex.good()) {
+//        ifsIndex.close();
+//        std::cout << "can not open file " << std::endl;
+//        return 1;
+//    }
+//
+//    std::ofstream ifsIndexSkip (logFileIndexSkip, std::ifstream::out | std::ifstream::binary);
+//    if (!ifsIndex.good()) {
+//        ifsIndex.close();
+//        std::cout << "can not open file logFileIndexSkip" << std::endl;
+//        return 1;
+//    }
+//
+//
+//
+//    std::vector<char> header_buffer(sizeof(uint32_t)); // create next block size buffer
+//    std::vector<char> block_buffer(50 * 1024 * 1024); // create next block size buffer
+//
+//    uint32_t data_size;
+//    std::ostringstream outp;
+//
+//    vm::Ref<vm::Cell> root;
+//    td::Result<vm::Ref<vm::Cell>> res;
+//    long int rows = 0;
+//    long int index_seek = 0;
+//    long int index_seek_last = 0;
+//
+//    while (true) {
+//        if (!ifsIndex.read(&header_buffer[0], sizeof(uint32_t))) {
+//            ifsIndex.close();
+//            sleep(1);
+//            std::cout << "sleep after read index" << std::endl;
+//
+//            // reopen file and seek
+//            ifsIndex.open(logFileIndex, std::ifstream::in | std::ifstream::binary);
+//            if (!ifsIndex.good()) {
+//                ifsIndex.close();
+//                std::cout << "can not open file " << std::endl;
+//                return 1;
+//            }
+//            ifsIndex.seekg(index_seek_last, std::ios::beg);
+//            continue;
+//        }
+//        index_seek_last = ifsIndex.tellg();
+//        data_size = *(reinterpret_cast<uint32_t *>(header_buffer.data()));
+//
+//        if (index_seek > index_seek_last) {
+//            ifs.seekg(data_size, std::ios::cur);
+//            rows ++;
+//            if (rows % 100 == 0) {
+//                std::cout << "skip last seek:" << index_seek_last << std::endl;
+//            }
+//            continue;
+//        }
+//
+//        try {
+//            if (!ifs.read(&block_buffer[0], data_size)) {
+//                std::cout << "CANNOT READ BLOCK: " << std::endl;
+//                exit(1);
+//                continue;
+//            }
+////            std::string buff(&block_buffer[0], data_size);
+////            blocksQueue.push(buff);
+//            print_block_custom(&block_buffer[0], data_size);
+//        } catch (std::exception &e) {
+//            std::cout << "EXCEPTION catch" << std::endl;
+//            break;
+//        }
+//        header_buffer.clear();
+//        block_buffer.clear();
+//
+//        rows ++;
+//        if (rows % 50 == 0) {
+//            std::cout << "last seek:" << index_seek_last << std::endl;
+//        }
+//
+//        ifsIndexSkip << index_seek_last;
+//        ifsIndexSkip.flush();
+//        ifsIndexSkip.clear();
+//        ifsIndexSkip.seekp(0, std::ios::beg);
+//        std::cout <<  index_seek_last << std::endl;
+//    }
+//
+//    std::cout << "Read end" << std::endl;
+//    ifs.close();
+//
+//
+//    return 0;
 }
