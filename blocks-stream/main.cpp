@@ -512,49 +512,77 @@ void print_block_custom(const char *data, uint32_t size) {
 }
 
 
-//    long int num = 14997600;
-//    ifsIndexSkip.write(reinterpret_cast<const char *>(&num), sizeof(num));
-//    ifsIndexSkip.flush();
-//    ifsIndexSkip.clear();
-//    ifsIndexSkip.seekp(0, std::ios::beg);
-//    return 1;
+void run(ton::ext::BlockingQueue<std::string>* q) {
+    std::string m;
+    while (1) {
+        if (!q->pop(m)) {
+            std::cout << "CANT POP return\n";
+            return;
+        }
+
+        std::cout << m << std::endl;
+    }
+}
+
 int main(int argc, char *argv[]) {
     std::string  logFile = "/tmp/blocks.log.part";
     std::string logFileIndex = "/tmp/blocks.log.index.part";
 
     ton::ext::BlockingQueue<std::string> queue(100);
-    ton::ext::BlocksReaderConfig conf = {
-            .log_filename = logFile,
-            .index_filename = logFileIndex
-    };
 
-    ton::ext::BlocksReader blocksReader(&conf, &queue);
+    std::thread t1(run, &queue);
+    std::thread t2(run, &queue);
+    std::thread t3(run, &queue);
+    queue.push("1");
+    queue.push("2");
+    queue.push("3");
+    queue.push("4");
+    queue.push("5");
 
-    try {
-        blocksReader.LoadSeek();
-        blocksReader.OpenFiles();
-    } catch (std::system_error &e) {
-        std::cout << "error load seek: " << e.what() << std::endl;
-    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    queue.close();
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    t3.join();
+    t1.join();
+    t2.join();
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    std::cout << "DONE!\n";
 
-    std::cout << "start reading index from: " << conf.index_seek << std::endl;
-    std::cout << "start reading log from: " << conf.log_seek << std::endl;
-
-    auto reader_thread = blocksReader.Spawn();
-
-    int c = 10;
-    while (--c > 0) {
-        auto msg = queue.pop();
-        print_block_custom(msg.c_str(), msg.size());
-        std::cout << "msg size: " << msg.size() << std::endl;
-    }
-    std::cout << "stopping..." << std::endl;
-    queue.Close();
-    blocksReader.Stop();
-
-    std::cout << "waiting reader..." << std::endl;
-    reader_thread.join();
-    std::cout << "stoped!" << std::endl;
+//    ton::ext::BlocksReaderConfig conf = {
+//            .log_filename = logFile,
+//            .index_filename = logFileIndex
+//    };
+//
+//    ton::ext::BlocksReader blocksReader(&conf, &queue);
+//
+//    try {
+//        blocksReader.load_seek();
+//        blocksReader.open_files();
+//    } catch (std::system_error &e) {
+//        std::cout << "error load seek: " << e.what() << std::endl;
+//    }
+//
+//    std::cout << "start reading index from: " << conf.index_seek << std::endl;
+//    std::cout << "start reading log from: " << conf.log_seek << std::endl;
+//
+//    auto reader_thread = blocksReader.spawn();
+//
+//    int c = 10;
+//    std::string msg;
+//    while (--c > 0) {
+//        if (!queue.pop(msg)) {
+//            break;
+//        }
+//        print_block_custom(msg.c_str(), msg.size());
+//        std::cout << "msg size: " << msg.size() << std::endl;
+//    }
+//    std::cout << "stopping..." << std::endl;
+//    queue.close();
+//    blocksReader.stop();
+//
+//    std::cout << "waiting reader..." << std::endl;
+//    reader_thread.join();
+//    std::cout << "stoped!" << std::endl;
 
 
 //    blocksReader.Run

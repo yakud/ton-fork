@@ -23,6 +23,10 @@ set(BLOCKS_STREAM_SOURCE
         src/blocks-reader.hpp
         src/blocks-reader.cpp
         src/blocking-queue.hpp
+        src/block-converter.hpp
+        src/block-converter.cpp
+        src/tcp_stream.hpp
+        src/tcp_stream.cpp
 )
 
 #add_executable(blocks-stream ${BLOCKS_STREAM_SOURCE})

@@ -2836,7 +2836,7 @@ void dump_stats() {
 }
 
 void streamWorker() {
-    ton::ext::BlocksStream::GetInstance().Writer();
+    ton::ext::BlocksStream::GetInstance().writer();
 }
 
 int main(int argc, char *argv[]) {

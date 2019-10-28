@@ -4,37 +4,10 @@
 
 #include <fstream>
 #include <iostream>
-#include "blocking-queue.hpp"
-//#include <vector>
-//#include <td/utils/buffer.h>
-//#include <vm/boc.h>
-//#include <crypto/block/block-auto.h>
-//
-//#include <queue>
-//#include <cstdlib>
-//#include <cstring>
-//#include <iostream>
-//#include <condition_variable>
-//#include <string>
 #include <thread>
-//#include <mutex>
-//#include <boost/asio.hpp>
-//#include <cstdlib>
-//#include <chrono>
-#include <common/checksum.h>
-#include <crypto/vm/dict.h>
-//
-//#include <fstream>
-//#include <iostream>
-//#include <vector>
-#include <td/utils/buffer.h>
-#include <vm/boc.h>
-#include <crypto/block/block-auto.h>
-//
-#include <crypto/block/block-parse.h>
-#include <validator/impl/block.hpp>
-//#include <csignal>
-#include <atomic>
+#include <cstring>
+#include <mutex>
+#include "blocking-queue.hpp"
 
 #ifndef BLOCKS_STREAM_BLOCKS_READER_HPP
 #define BLOCKS_STREAM_BLOCKS_READER_HPP
@@ -65,20 +38,20 @@ protected:
 
 public:
     BlocksReader(BlocksReaderConfig *conf, BlockingQueue<std::string> *output);
-    ~BlocksReader(){CloseFiles();}
+    ~BlocksReader(){close_files();}
 
-    void OpenFiles();
-    void CloseFiles();
+    void open_files();
+    void close_files();
 
-    void StoreSeek();
-    void LoadSeek();
-    std::string SeekFilename() {
+    void store_seek();
+    void load_seek();
+    std::string seek_filename() {
         return config->index_filename + ".seek";
     }
 
-    std::thread Spawn();
-    void Run();
-    void Stop();
+    std::thread spawn();
+    void run();
+    void stop();
 };
 
 }
