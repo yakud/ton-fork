@@ -42,7 +42,7 @@ cmake   -DCMAKE_VERBOSE_MAKEFILE:BOOL=ON \
 cmake --build . --target vaidator-engine
 cmake --build . --target vaidator-engine-console
 cmake --build . --target blocks-stream-reader
-cmake --build . --target enerate-random-id
+cmake --build . --target generate-random-id
 cmake --build . --target lite-client
 
 #----------------------------------------
