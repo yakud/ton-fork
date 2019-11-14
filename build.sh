@@ -39,7 +39,11 @@ cmake   -DCMAKE_VERBOSE_MAKEFILE:BOOL=ON \
         -L \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         ..
-cmake --build .
+cmake --build . --target vaidator-engine
+cmake --build . --target vaidator-engine-console
+cmake --build . --target blocks-stream-reader
+cmake --build . --target enerate-random-id
+cmake --build . --target lite-client
 
 #----------------------------------------
 # create artifact
@@ -58,7 +62,6 @@ cp -v ${BUILD_DIR}/build/validator-engine/validator-engine                    ${
 cp -v ${BUILD_DIR}/build/validator-engine-console/validator-engine-console    ${ARTIFACT_DIR}/bin/
 cp -v ${BUILD_DIR}/build/lite-client/lite-client                              ${ARTIFACT_DIR}/bin/
 cp -v ${BUILD_DIR}/build/utils/generate-random-id                             ${ARTIFACT_DIR}/bin/
-cp -v ${BUILD_DIR}/build/utils/json2tlo                                       ${ARTIFACT_DIR}/bin/
 cp -v ${BUILD_DIR}/build/blocks-stream/blocks-stream-reader                   ${ARTIFACT_DIR}/bin/
 #strip ${ARTIFACT_DIR}/bin/*
 
