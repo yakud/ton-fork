@@ -39,11 +39,11 @@ cmake   -DCMAKE_VERBOSE_MAKEFILE:BOOL=ON \
         -L \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         ..
-cmake --build . --target vaidator-engine
-cmake --build . --target vaidator-engine-console
-cmake --build . --target blocks-stream-reader
-cmake --build . --target generate-random-id
-cmake --build . --target lite-client
+cmake --build . --target validator-engine -- -j 4
+cmake --build . --target validator-engine-console -- -j 4
+cmake --build . --target blocks-stream-reader -- -j 4
+cmake --build . --target generate-random-id -- -j 4
+cmake --build . --target lite-client -- -j 4
 
 #----------------------------------------
 # create artifact
