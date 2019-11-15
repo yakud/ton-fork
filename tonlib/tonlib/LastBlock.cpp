@@ -17,12 +17,15 @@
     Copyright 2017-2019 Telegram Systems LLP
 */
 #include "tonlib/LastBlock.h"
+#include "tonlib/LastConfig.h"
 
 #include "tonlib/utils.h"
 
 #include "ton/lite-tl.hpp"
 
 #include "lite-client/lite-client-common.h"
+
+#include "td/utils/JsonBuilder.h"
 
 namespace tonlib {
 
@@ -271,7 +274,7 @@ void LastBlock::update_zero_state(ton::ZeroStateIdExt zero_state_id, td::Slice s
   }
 
   if (!state_.zero_state_id.is_valid()) {
-    LOG(INFO) << "Init zerostate from " << source << ": " << zero_state_id.to_str();
+    VLOG(last_block) << "Init zerostate from " << source << ": " << zero_state_id.to_str();
     state_.zero_state_id = std::move(zero_state_id);
     return;
   }
@@ -295,7 +298,7 @@ bool LastBlock::update_mc_last_block(ton::BlockIdExt mc_block_id) {
   }
   if (!state_.last_block_id.is_valid() || state_.last_block_id.id.seqno < mc_block_id.id.seqno) {
     state_.last_block_id = mc_block_id;
-    LOG(INFO) << "Update masterchain block id: " << state_.last_block_id.to_str();
+    VLOG(last_block) << "Update masterchain block id: " << state_.last_block_id.to_str();
     return true;
   }
   return false;
@@ -311,7 +314,19 @@ bool LastBlock::update_mc_last_key_block(ton::BlockIdExt mc_key_block_id) {
   }
   if (!state_.last_key_block_id.is_valid() || state_.last_key_block_id.id.seqno < mc_key_block_id.id.seqno) {
     state_.last_key_block_id = mc_key_block_id;
-    LOG(INFO) << "Update masterchain key block id: " << state_.last_key_block_id.to_str();
+    VLOG(last_block) << "Update masterchain key block id: " << state_.last_key_block_id.to_str();
+    if (true) {
+      td::JsonBuilder jb;
+      auto jo = jb.enter_object();
+      jo("workchain", state_.last_key_block_id.id.workchain);
+      jo("shard", static_cast<td::int64>(state_.last_key_block_id.id.shard));
+      jo("seqno", static_cast<td::int32>(state_.last_key_block_id.id.seqno));
+      jo("root_hash", td::base64_encode(as_slice(state_.last_key_block_id.root_hash)));
+      jo("file_hash", td::base64_encode(as_slice(state_.last_key_block_id.file_hash)));
+      jo.leave();
+      LOG(INFO) << jb.string_builder().as_cslice();
+    }
+
     //LOG(ERROR) << td::int64(state_.last_key_block_id.id.shard) << " "
     //<< td::base64_encode(state_.last_key_block_id.file_hash.as_slice()) << " "
     //<< td::base64_encode(state_.last_key_block_id.root_hash.as_slice());
@@ -330,7 +345,7 @@ bool LastBlock::update_init_block(ton::BlockIdExt init_block_id) {
   }
   if (state_.init_block_id != init_block_id) {
     state_.init_block_id = init_block_id;
-    LOG(INFO) << "Update init block id: " << state_.init_block_id.to_str();
+    VLOG(last_block) << "Update init block id: " << state_.init_block_id.to_str();
     return true;
   }
   return false;
