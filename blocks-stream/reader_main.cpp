@@ -90,11 +90,11 @@ int main(int argc, char *argv[]) {
     // Init reader
     ton::ext::BlocksReader blocks_reader(&conf, &queue);
     try {
-//        blocks_reader.load_seek();
+        blocks_reader.load_seek();
     } catch (std::system_error &e) {
         std::cout << "error load seek: " << e.what() << std::endl;
     }
-//    blocks_reader.open_files();
+    blocks_reader.open_files();
 
     std::cout << "start reading index from: " << conf.index_seek << std::endl;
     std::cout << "start reading log from: " << conf.log_seek << std::endl;
