@@ -196,6 +196,7 @@ class TLB {
   virtual std::ostream& print_type(std::ostream& os) const {
     return os << "<unknown-TLB-type>";
   }
+  std::string get_type_name() const;
   virtual bool print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const;
   virtual bool print(PrettyPrinter& pp, const vm::CellSlice& cs) const {
     vm::CellSlice cs_copy{cs};
@@ -218,6 +219,9 @@ class TLB {
     return cs_ref.not_null() ? as_string(*cs_ref, indent) : "<null>";
   }
   std::string as_string_ref(Ref<vm::Cell> cell_ref, int indent = 0) const;
+  static inline size_t nat_abs(int x) {
+    return (x > 1) * 2 + (x & 1);
+  }
 
  protected:
   bool validate_ref_internal(Ref<vm::Cell> cell_ref, bool weak = false) const;

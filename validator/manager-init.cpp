@@ -228,7 +228,7 @@ void ValidatorManagerMasterchainReiniter::choose_masterchain_state() {
     if (!p || ValidatorManager::is_persistent_state(h->unix_time(), p->unix_time())) {
       auto ttl = ValidatorManager::persistent_state_ttl(h->unix_time());
       td::Clocks::Duration time_to_download = 3600;
-      if (ttl < td::Clocks::system() + time_to_download) {
+      if (ttl > td::Clocks::system() + time_to_download) {
         handle = h;
         break;
       } else {
@@ -414,7 +414,8 @@ void ValidatorManagerMasterchainStarter::got_key_block_handle(BlockHandle handle
 
 void ValidatorManagerMasterchainStarter::got_shard_block_id(BlockIdExt block_id) {
   client_block_id_ = block_id;
-  finish();
+  start_shard_client();
+  return;
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<std::vector<BlockIdExt>> R) {
     R.ensure();
@@ -436,7 +437,7 @@ void ValidatorManagerMasterchainStarter::got_hardforks(std::vector<BlockIdExt> v
         return;
       }
     }
-    finish();
+    start_shard_client();
     return;
   }
   if (h.size() > vec.size() + 1) {
@@ -460,9 +461,9 @@ void ValidatorManagerMasterchainStarter::got_hardforks(std::vector<BlockIdExt> v
     return;
   }
 
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<BlockHandle> R) {
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), db = db_](td::Result<ConstBlockHandle> R) {
     R.ensure();
-    td::actor::send_closure(SelfId, &ValidatorManagerMasterchainStarter::got_truncate_block_handle, R.move_as_ok());
+    td::actor::send_closure(SelfId, &ValidatorManagerMasterchainStarter::got_truncate_block_id, R.move_as_ok()->id());
   });
   td::actor::send_closure(db_, &Db::get_block_by_seqno, AccountIdPrefixFull{masterchainId, 0}, b.seqno() - 1,
                           std::move(P));
@@ -565,13 +566,20 @@ void ValidatorManagerMasterchainStarter::truncated() {
 void ValidatorManagerMasterchainStarter::written_next() {
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
     R.ensure();
-    td::actor::send_closure(SelfId, &ValidatorManagerMasterchainStarter::finish);
+    td::actor::send_closure(SelfId, &ValidatorManagerMasterchainStarter::start_shard_client);
   });
   td::actor::send_closure(db_, &Db::update_hardforks, opts_->get_hardforks(), std::move(P));
 }
 
+void ValidatorManagerMasterchainStarter::start_shard_client() {
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
+    R.ensure();
+    td::actor::send_closure(SelfId, &ValidatorManagerMasterchainStarter::finish);
+  });
+  client_ = td::actor::create_actor<ShardClient>("shardclient", opts_, manager_, std::move(P));
+}
+
 void ValidatorManagerMasterchainStarter::finish() {
-  client_ = td::actor::create_actor<ShardClient>("shardclient", opts_, manager_);
   promise_.set_value(
       ValidatorManagerInitResult{handle_, state_, std::move(client_), gc_handle_, gc_state_, last_key_block_handle_});
   stop();

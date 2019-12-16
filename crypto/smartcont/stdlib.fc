@@ -21,6 +21,8 @@ forall X -> X null() asm "PUSHNULL";
 int now() asm "NOW";
 slice my_address() asm "MYADDR";
 tuple get_balance() asm "BALANCE";
+int cur_lt() asm "LTIME";
+int block_lt() asm "BLOCKLT";
 
 int cell_hash(cell c) asm "HASHCU";
 int slice_hash(slice s) asm "HASHSU";
@@ -35,9 +37,12 @@ int check_data_signature(slice data, slice signature, int public_key) asm "CHKSI
 
 cell get_data() asm "c4 PUSH";
 () set_data(cell c) impure asm "c4 POP";
-cell get_c3() impure asm "c3 PUSH";
-() set_c3(cell c) impure asm "c3 POP";
+cont get_c3() impure asm "c3 PUSH";
+() set_c3(cont c) impure asm "c3 POP";
+cont bless(slice s) impure asm "BLESS";
+
 () accept_message() impure asm "ACCEPT";
+() set_gas_limit(int limit) impure asm "SETGASLIMIT";
 () commit() impure asm "COMMIT";
 
 int min(int x, int y) asm "MIN";
@@ -151,5 +156,9 @@ int cell_null?(cell c) asm "ISNULL";
 () send_raw_message(cell msg, int mode) impure asm "SENDRAWMSG";
 () set_code(cell new_code) impure asm "SETCODE";
 
-slice touch_slice(slice s) asm "NOP";
-(slice,()) ~touch_slice(slice s) asm "NOP";
+int random() impure asm "RANDU256";
+int rand(int range) impure asm "RAND";
+int get_seed() impure asm "RANDSEED";
+int set_seed() impure asm "SETRAND";
+() randomize(int x) impure asm "ADDRAND";
+() randomize_lt() impure asm "LTIME" "ADDRAND";
