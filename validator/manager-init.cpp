@@ -228,7 +228,7 @@ void ValidatorManagerMasterchainReiniter::choose_masterchain_state() {
     if (!p || ValidatorManager::is_persistent_state(h->unix_time(), p->unix_time())) {
       auto ttl = ValidatorManager::persistent_state_ttl(h->unix_time());
       td::Clocks::Duration time_to_download = 3600;
-      if (ttl < td::Clocks::system() + time_to_download) {
+      if (ttl > td::Clocks::system() + time_to_download) {
         handle = h;
         break;
       } else {
@@ -461,9 +461,9 @@ void ValidatorManagerMasterchainStarter::got_hardforks(std::vector<BlockIdExt> v
     return;
   }
 
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<BlockHandle> R) {
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), db = db_](td::Result<ConstBlockHandle> R) {
     R.ensure();
-    td::actor::send_closure(SelfId, &ValidatorManagerMasterchainStarter::got_truncate_block_handle, R.move_as_ok());
+    td::actor::send_closure(SelfId, &ValidatorManagerMasterchainStarter::got_truncate_block_id, R.move_as_ok()->id());
   });
   td::actor::send_closure(db_, &Db::get_block_by_seqno, AccountIdPrefixFull{masterchainId, 0}, b.seqno() - 1,
                           std::move(P));

@@ -57,6 +57,11 @@ class Atom;
 
 using Tuple = td::Cnt<std::vector<StackEntry>>;
 
+template <typename... Args>
+Ref<Tuple> make_tuple_ref(Args&&... args) {
+  return td::make_cnt_ref<std::vector<vm::StackEntry>>(std::vector<vm::StackEntry>{std::forward<Args>(args)...});
+}
+
 struct from_object_t {};
 constexpr from_object_t from_object{};
 
@@ -130,6 +135,9 @@ class StackEntry {
     tp = t_null;
     return *this;
   }
+  bool set_int(td::RefInt256 value) {
+    return set(t_int, std::move(value));
+  }
   bool empty() const {
     return tp == t_null;
   }
@@ -161,6 +169,10 @@ class StackEntry {
   Type type() const {
     return tp;
   }
+  // mode: +1 = disable short ints, +2 = disable continuations
+  bool serialize(vm::CellBuilder& cb, int mode = 0) const;
+  bool deserialize(vm::CellSlice& cs, int mode = 0);
+  bool deserialize(Ref<Cell> cell, int mode = 0);
 
  private:
   static bool is_list(const StackEntry* se);
@@ -188,10 +200,19 @@ class StackEntry {
   Ref<T> move_as() & {
     return tp == tag ? Ref<T>{td::static_cast_ref(), std::move(ref)} : td::Ref<T>{};
   }
+  bool set(Type _tp, RefAny _ref) {
+    tp = _tp;
+    ref = std::move(_ref);
+    return ref.not_null() || tp == t_null;
+  }
 
  public:
   static StackEntry make_list(std::vector<StackEntry>&& elems);
   static StackEntry make_list(const std::vector<StackEntry>& elems);
+  template <typename T1, typename T2>
+  static StackEntry cons(T1&& x, T2&& y) {
+    return StackEntry{make_tuple_ref(std::forward<T1>(x), std::forward<T2>(y))};
+  }
   template <typename T>
   static StackEntry maybe(Ref<T> ref) {
     if (ref.is_null()) {
@@ -266,11 +287,6 @@ class StackEntry {
 
 inline void swap(StackEntry& se1, StackEntry& se2) {
   se1.swap(se2);
-}
-
-template <typename... Args>
-Ref<Tuple> make_tuple_ref(Args&&... args) {
-  return td::make_cnt_ref<std::vector<vm::StackEntry>>(std::vector<vm::StackEntry>{std::forward<Args>(args)...});
 }
 
 const StackEntry& tuple_index(const Tuple& tup, unsigned idx);
@@ -504,6 +520,9 @@ class Stack : public td::CntObject {
   }
   // mode: +1 = add eoln, +2 = Lisp-style lists
   void dump(std::ostream& os, int mode = 1) const;
+  bool serialize(vm::CellBuilder& cb, int mode = 0) const;
+  bool deserialize(vm::CellSlice& cs, int mode = 0);
+  static bool deserialize_to(vm::CellSlice& cs, Ref<Stack>& stack, int mode = 0);
 };
 
 }  // namespace vm
