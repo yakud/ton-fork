@@ -8,6 +8,7 @@
 #include <cstring>
 #include <mutex>
 #include "blocking-queue.hpp"
+#include "tcp_stream.hpp"
 
 #ifndef BLOCKS_STREAM_BLOCKS_READER_HPP
 #define BLOCKS_STREAM_BLOCKS_READER_HPP
@@ -17,7 +18,8 @@ namespace ext {
 
 const uint32_t BUFFER_SIZE_BLOCK = 50 * 1024 * 1024;
 
-struct BlocksReaderConfig {
+struct StreamReaderConfig {
+    TcpStreamPacket::types type;
     std::string log_filename;
     std::string index_filename;
 
@@ -25,10 +27,10 @@ struct BlocksReaderConfig {
     long int index_seek = 0;
 };
 
-class BlocksReader {
+class StreamReader {
 protected:
-    BlockingQueue<std::string> *queue{};
-    BlocksReaderConfig *config;
+    BlockingQueue<TcpStreamPacket> *queue{};
+    StreamReaderConfig *config;
     std::ifstream ifs_log;
     std::ifstream ifs_index;
     std::fstream ofs_index_seek;
@@ -37,8 +39,8 @@ protected:
     std::mutex m;
 
 public:
-    BlocksReader(BlocksReaderConfig *conf, BlockingQueue<std::string> *output);
-    ~BlocksReader(){close_files();}
+    StreamReader(StreamReaderConfig *conf, BlockingQueue<TcpStreamPacket> *output);
+    ~StreamReader(){close_files();}
 
     void open_files();
     void close_files();

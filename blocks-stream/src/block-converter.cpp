@@ -2,6 +2,7 @@
 // Created by user on 10/24/19.
 //
 
+#include <crypto/block/mc-config.h>
 #include "block-converter.hpp"
 
 std::basic_string<char> ton::ext::BlockConverter::bin_to_pretty_custom(td::BufferSlice block_data) {
@@ -181,6 +182,84 @@ std::basic_string<char> ton::ext::BlockConverter::bin_to_pretty_custom(td::Buffe
 
     pp << ")";
 
+
+
+//    auto config_res = block::ConfigInfo::extract_config(
+//            root, block::ConfigInfo::needStateRoot | block::ConfigInfo::needValidatorSet |
+//                  block::ConfigInfo::needShardHashes | block::ConfigInfo::needPrevBlocks);
+//    if (config_res.is_error()) {
+//        throw std::exception();
+//    }
+//    auto config_ = config_res.move_as_ok();
+//    auto cv_root = config_->get_config_param(35, 34);
+//    if (cv_root.not_null()) {
+//        auto validators_ = block::Config::unpack_validator_set(std::move(cv_root));
+//        auto validators = validators_.move_as_ok();
+//
+//        auto i = 0;
+//        for (auto v : validators->list) {
+//            std::cout << "validator: " << i++
+//                << " pub_key: " << v.pubkey.as_slice().str()
+//                << " weight: " << v.cum_weight;
+//        }
+//    }
+
+
+    return outp.str();
+}
+
+std::basic_string<char> ton::ext::BlockConverter::state_to_pretty_custom(td::BufferSlice header_data, td::BufferSlice state_data) {
+    // buffer
+    std::ostringstream outp;
+    tlb::PrettyPrinter pp{outp, 0};
+
+    // header_data
+    auto block_header_res = vm::std_boc_deserialize(header_data);
+    if (block_header_res.is_error()) {
+        std::cout << "CANNOT DESERIALIZE STATE: " << block_header_res.move_as_error().error().public_message() << std::endl;
+        return "";
+    }
+
+    auto block_header_root = block_header_res.move_as_ok();
+    auto block_header_cs = vm::load_cell_slice(block_header_root);
+
+    block::gen::BlockInfo blk_info;
+    block::gen::BlockInfo::Record blk_info_rec;
+    if (!blk_info.unpack(block_header_cs, blk_info_rec)) {
+        std::cout << "cannot unpack BlockInfo" << std::endl;
+        return "";
+    }
+
+    outp << "(account_state \n info:";
+
+    td::Ref<vm::Cell> cc_block_info;
+    blk_info.cell_pack(cc_block_info, blk_info_rec);
+    blk_info.print_ref(pp, cc_block_info);
+
+    // State data
+    auto state_res = vm::std_boc_deserialize(state_data);
+    if (state_res.is_error()) {
+        std::cout << "CANNOT DESERIALIZE STATE: " << state_res.move_as_error().error().public_message() << std::endl;
+        return "";
+    }
+
+    auto state_root = state_res.move_as_ok();
+    auto state_cs = vm::load_cell_slice(state_root);
+
+    block::gen::ShardAccount acc_info;
+    block::gen::ShardAccount::Record acc_info_rec;
+    if (!acc_info.unpack(state_cs, acc_info_rec)) {
+        std::cout << "cannot unpack ShardAccount" << std::endl;
+        return "";
+    }
+
+    outp << "\n state:";
+
+    td::Ref<vm::Cell> cc;
+    acc_info.cell_pack(cc, acc_info_rec);
+    acc_info.print_ref(pp, cc);
+
+    outp << ")";
 
     return outp.str();
 }

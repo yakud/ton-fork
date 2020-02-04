@@ -2,33 +2,11 @@
 // Created by user on 9/24/19.
 //
 
-//#include <iostream>
-//#include <vector>
-//#include <td/utils/buffer.h>
-//#include <vm/boc.h>
-//#include <crypto/block/block-auto.h>
-//
-//#include <cstdlib>
-//#include <cstring>
-//#include <string>
-//#include <thread>
-//#include <mutex>
-//#include <boost/asio.hpp>
-//#include <chrono>
-//#include <common/checksum.h>
-//#include <crypto/vm/dict.h>
-//
-//#include <crypto/block/block-parse.h>
-//#include <csignal>
-//
-//#include <td/utils/OptionsParser.h>
-//#include <common/errorcode.h>
-
 #include <condition_variable>
 #include <td/utils/OptionsParser.h>
 #include <common/errorcode.h>
 
-#include <blocks-stream/src/blocks-reader.hpp>
+#include <blocks-stream/src/stream-reader.hpp>
 #include <blocks-stream/src/tcp_stream.hpp>
 
 //std::atomic<bool> sig_caught;
@@ -43,19 +21,32 @@ void signal_handler( int signal_num ) {
 
 // https://github.com/jupp0r/prometheus-cpp needed
 int main(int argc, char *argv[]) {
-    ton::ext::BlocksReaderConfig conf = {};
+    auto confBlocks = ton::ext::StreamReaderConfig {
+        ton::ext::TcpStreamPacket::block
+    };
+    auto confState = ton::ext::StreamReaderConfig {
+        ton::ext::TcpStreamPacket::state
+    };
     std::string stream_host;
     std::string stream_port;
     td::int32 workers;
 
     td::OptionsParser p;
     p.set_description("stream reader for TON network");
-    p.add_option('s', "streamfile", "stream blocks file", [&](td::Slice fname) {
-        conf.log_filename = fname.str();
+    p.add_option('s', "streamblocksfile", "stream blocks file", [&](td::Slice fname) {
+        confBlocks.log_filename = fname.str();
         return td::Status::OK();
     });
-    p.add_option('i', "indexfile", "stream index file", [&](td::Slice fname) {
-        conf.index_filename = fname.str();
+    p.add_option('i', "streamblocksindexfile", "stream blocks index file", [&](td::Slice fname) {
+        confBlocks.index_filename = fname.str();
+        return td::Status::OK();
+    });
+    p.add_option('f', "streamstatefile", "stream state file", [&](td::Slice fname) {
+        confState.log_filename = fname.str();
+        return td::Status::OK();
+    });
+    p.add_option('a', "streamstateindexfile", "stream state index file", [&](td::Slice fname) {
+        confState.index_filename = fname.str();
         return td::Status::OK();
     });
     p.add_option('h', "host", "stream tcp receiver host", [&](td::Slice fname) {
@@ -85,10 +76,10 @@ int main(int argc, char *argv[]) {
         std::_Exit(2);
     }
 
-    ton::ext::BlockingQueue<std::string> queue(1000);
+    ton::ext::BlockingQueue<ton::ext::TcpStreamPacket> queue(1000);
 
-    // Init reader
-    ton::ext::BlocksReader blocks_reader(&conf, &queue);
+    // Init reader blocks
+    ton::ext::StreamReader blocks_reader(&confBlocks, &queue);
     try {
         blocks_reader.load_seek();
     } catch (std::system_error &e) {
@@ -96,10 +87,24 @@ int main(int argc, char *argv[]) {
     }
     blocks_reader.open_files();
 
-    std::cout << "start reading index from: " << conf.index_seek << std::endl;
-    std::cout << "start reading log from: " << conf.log_seek << std::endl;
-    std::cout << "log: " << conf.log_filename << std::endl;
-    std::cout << "index: " << conf.index_filename << std::endl;
+    // Init reader state
+    ton::ext::StreamReader state_reader(&confState, &queue);
+    try {
+        state_reader.load_seek();
+    } catch (std::system_error &e) {
+        std::cout << "error load seek: " << e.what() << std::endl;
+    }
+    state_reader.open_files();
+
+    std::cout << "blocks log: " << confBlocks.log_filename << std::endl;
+    std::cout << "blocks index: " << confBlocks.index_filename << std::endl;
+    std::cout << "start reading index from: " << confBlocks.index_seek << std::endl;
+    std::cout << "start reading log from: " << confBlocks.log_seek << std::endl;
+
+    std::cout << "state log: " << confState.log_filename << std::endl;
+    std::cout << "state index: " << confState.index_filename << std::endl;
+    std::cout << "start reading state index from: " << confState.index_seek << std::endl;
+    std::cout << "start reading state log from: " << confState.log_seek << std::endl;
 
     // Init TCP stream
     std::cout << "starting streams..." << std::endl;
@@ -108,8 +113,7 @@ int main(int argc, char *argv[]) {
     tcp_streams.reserve(workers);
     tcp_streams_thread.reserve(workers);
 
-//    ton::ext::TcpStream s1(stream_host, stream_port, &queue);
-//    auto st1 = s1.spawn();
+    std::cout << "stream config: " << stream_host << ":" << stream_port << std::endl;
 
     for (auto i = 0; i < workers; i ++) {
         tcp_streams.emplace_back(stream_host, stream_port, &queue);
@@ -122,6 +126,9 @@ int main(int argc, char *argv[]) {
     std::cout << "total started streams: " << workers << std::endl;
 
     auto reader_thread = blocks_reader.spawn();
+    auto state_thread = state_reader.spawn();
+
+    std::cout << "Spawned reader and state threads" << std::endl;
 
     signal(SIGTERM, signal_handler);
     signal(SIGINT, signal_handler);
@@ -129,10 +136,12 @@ int main(int argc, char *argv[]) {
     sig_caught.wait(lock);
 
     std::cout << "caught a SIG.\n";
-    std::cout << "Reader stop\n";
+    std::cout << "Readers stopping...\n";
     blocks_reader.stop();
+    state_reader.stop();
     std::cout << "Waiting for reader\n";
     reader_thread.join();
+    state_thread.join();
 
     std::cout << "Queue close\n";
     queue.close();

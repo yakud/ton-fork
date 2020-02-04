@@ -18,25 +18,22 @@ FIND_PACKAGE(Boost 1.65.1 REQUIRED COMPONENTS
         thread unit_test_framework filesystem date_time system iostreams program_options)
 
 set(BLOCKS_STREAM_SOURCE
-        src/blocks-stream.hpp
-        src/blocks-stream.cpp
-        src/blocks-reader.hpp
-        src/blocks-reader.cpp
+        src/stream-writer.hpp
+        src/stream-writer.cpp
+        src/stream-reader.hpp
+        src/stream-reader.cpp
         src/blocking-queue.hpp
         src/block-converter.hpp
         src/block-converter.cpp
         src/tcp_stream.hpp
         src/tcp_stream.cpp
+        src/account-extractor.cpp
+        src/account-extractor.hpp
 )
 
 #add_executable(blocks-stream ${BLOCKS_STREAM_SOURCE})
 add_executable(blocks-stream-reader reader_main.cpp ${BLOCKS_STREAM_SOURCE})
-add_executable(blocks-stream-reader-simple main.cpp ${BLOCKS_STREAM_SOURCE})
 
 target_link_libraries(blocks-stream-reader
-        tdutils tdutils tdactor adnllite tl_api tl_lite_api tl-lite-utils ton_crypto ton_block dht overlay
-        Boost::date_time Boost::system Boost::iostreams Boost::program_options validator overlay catchain validatorsession ton_crypto ton_block)
-
-target_link_libraries(blocks-stream-reader-simple
         tdutils tdutils tdactor adnllite tl_api tl_lite_api tl-lite-utils ton_crypto ton_block dht overlay
         Boost::date_time Boost::system Boost::iostreams Boost::program_options validator overlay catchain validatorsession ton_crypto ton_block)

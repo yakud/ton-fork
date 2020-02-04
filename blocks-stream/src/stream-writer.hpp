@@ -15,11 +15,16 @@ using namespace std;
 namespace ton {
 namespace ext {
 
-class BlocksStream {
+class FileStreamWriter {
 public:
-    static BlocksStream& GetInstance() {
-        static BlocksStream instance{};
+    static FileStreamWriter& get_instance_blocks() {
+        static FileStreamWriter instance{};
         return instance;
+    };
+
+    static FileStreamWriter& get_instance_state() {
+        static FileStreamWriter instanceState{};
+        return instanceState;
     };
 
     bool Init(const std::string& filename) {
@@ -28,25 +33,26 @@ public:
         return true;
     }
 
-    BlocksStream() = default;
-    ~BlocksStream() {
+    FileStreamWriter() = default;
+    ~FileStreamWriter() {
         if (outfile.is_open())
             outfile.close();
 
         if (outfileIndex)
             outfileIndex.close();
 
-        delete(blocksQueue);
+//        delete(queue);
     }
 
-    bool write_block(const std::string &stream) {
-        blocksQueue->push(stream);
+    bool write(const std::string &stream) {
+        queue->push(stream);
         return true;
     }
+
     void writer() {
         // todo: params
         BlockingQueue<std::string> bq(10000);
-        blocksQueue = &bq;
+        queue = &bq;
 
         std::ostringstream header_buffer;
         std::ostringstream body_buffer;
@@ -57,8 +63,8 @@ public:
             if (need_stop) {
                 break;
             }
-            if (!blocksQueue->pop(nextMessage)) {
-                if (blocksQueue->closed()) {
+            if (!queue->pop(nextMessage)) {
+                if (queue->closed()) {
                     break;
                 }
                 continue;
@@ -83,7 +89,7 @@ public:
     }
 
 protected:
-    BlockingQueue<std::string> *blocksQueue{};
+    BlockingQueue<std::string> *queue{};
     std::ofstream outfile;
     std::ofstream outfileIndex;
     atomic<bool> need_stop{false};

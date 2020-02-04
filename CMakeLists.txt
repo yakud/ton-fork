@@ -357,6 +357,8 @@ add_subdirectory(lite-client)
 add_subdirectory(tonlib)
 #END tonlib
 
+add_subdirectory(blocks-stream)
+
 #BEGIN internal
 if (NOT TON_ONLY_TONLIB)
 add_subdirectory(common)
@@ -376,8 +378,6 @@ add_subdirectory(dht-server)
 add_subdirectory(utils)
 endif()
 #END internal
-
-add_subdirectory(blocks-stream)
 
 if (NOT CMAKE_CROSSCOMPILING)
   if (TDUTILS_MIME_TYPE)

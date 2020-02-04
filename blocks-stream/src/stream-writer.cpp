@@ -2,7 +2,7 @@
 // Created by user on 9/23/19.
 //
 
-#include "blocks-stream.hpp"
+#include "stream-writer.hpp"
 
 /*
 bool ton::ext::BlocksStream::Init(const std::string &filename) {
@@ -14,7 +14,7 @@ bool ton::ext::BlocksStream::Init(const std::string &filename) {
 void ton::ext::BlocksStream::writer() {
     // todo: params
     BlockingQueue<std::string> bq(10000);
-    blocksQueue = &bq;
+    queue = &bq;
 
     std::ostringstream header_buffer;
     std::ostringstream body_buffer;
@@ -25,8 +25,8 @@ void ton::ext::BlocksStream::writer() {
         if (need_stop) {
             break;
         }
-        if (!blocksQueue->pop(nextMessage)) {
-            if (blocksQueue->closed()) {
+        if (!queue->pop(nextMessage)) {
+            if (queue->closed()) {
                 break;
             }
             continue;
@@ -51,7 +51,7 @@ void ton::ext::BlocksStream::writer() {
 }
 
 bool ton::ext::BlocksStream::write_block(const std::string &stream) {
-    blocksQueue->push(stream);
+    queue->push(stream);
     return true;
 }
 
@@ -62,6 +62,6 @@ ton::ext::BlocksStream::~BlocksStream() {
     if (outfileIndex)
         outfileIndex.close();
 
-    delete(blocksQueue);
+    delete(queue);
 }
 */

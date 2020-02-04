@@ -25,7 +25,7 @@
 #include "td/utils/overloaded.h"
 #include "ton/ton-io.hpp"
 #include "validator/full-node.h"
-#include "blocks-stream/src/blocks-stream.hpp"
+#include "blocks-stream/src/stream-writer.hpp"
 
 namespace ton {
 

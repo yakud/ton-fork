@@ -27,8 +27,10 @@
 #include "vm/cells/MerkleUpdate.h"
 #include "block/block-parse.h"
 #include "block/block-auto.h"
-#include <blocks-stream/src/blocks-stream.hpp>
+#include <blocks-stream/src/stream-writer.hpp>
+#include <blocks-stream/src/account-extractor.hpp>
 #include <utility>
+#include "vm/cells/MerkleProof.h"
 
 #define LAZY_STATE_DESERIALIZE 1
 
@@ -220,15 +222,23 @@ td::Status ShardStateQ::apply_block(BlockIdExt newid, td::Ref<BlockData> block) 
                                        " different from the one originally required");
   }
 
-    if (ton::ext::BlocksStream::GetInstance().write_block(block->data().as_slice().str())) {
-//        std::cout << "ShardStateQ apply_block (" << block->data().length() << ")" << block->block_id().to_str() << std::endl;
-    } else {
-        std::cout << "Write blockStream fail" << std::endl;
-        return td::Status::Error("Write_BlockStream_Failed");
-    }
 
 
-    return td::Status::OK();
+  // Account state stream
+  auto status = ton::ext::AccountExtractor::extract_and_write_accounts_state(root, block);
+  if (status.is_error()) {
+      return status;
+  }
+
+  // Blocks stream
+  if (ton::ext::FileStreamWriter::get_instance_blocks().write(block->data().as_slice().str())) {
+    // std::cout << "ShardStateQ apply_block (" << block->data().length() << ")" << block->block_id().to_str() << std::endl;
+  } else {
+    std::cout << "Write blockStream fail" << std::endl;
+    return td::Status::Error("Write_BlockStream_Failed");
+  }
+
+   return td::Status::OK();
 }
 
 td::Result<td::Ref<ShardState>> ShardStateQ::merge_with(const ShardState& with) const {

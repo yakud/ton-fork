@@ -62,7 +62,7 @@
 #include <sstream>
 #include <cstdlib>
 #include <set>
-#include <blocks-stream/src/blocks-stream.hpp>
+#include <blocks-stream/src/stream-writer.hpp>
 #include <condition_variable>
 #include <string>
 #include <thread>
@@ -2868,8 +2868,12 @@ void dump_stats() {
   LOG(WARNING) << td::NamedThreadSafeCounter::get_default();
 }
 
-void streamWorker() {
-    ton::ext::BlocksStream::GetInstance().writer();
+void streamBlocksWorker() {
+    ton::ext::FileStreamWriter::get_instance_blocks().writer();
+}
+
+void streamStateWorker() {
+    ton::ext::FileStreamWriter::get_instance_state().writer();
 }
 
 int main(int argc, char *argv[]) {
@@ -2992,10 +2996,19 @@ int main(int argc, char *argv[]) {
     return td::Status::OK();
   });
   p.add_option('u', "user", "change user", [&](td::Slice user) { return td::change_user(user); });
-  p.add_option('T', "streamfile", "stream blocks file", [&](td::Slice fname) {
-      if (!ton::ext::BlocksStream::GetInstance().Init(fname.data())) {
+  p.add_option('T', "streamblocksfile", "stream blocks file", [&](td::Slice fname) {
+      if (!ton::ext::FileStreamWriter::get_instance_blocks().Init(fname.data())) {
           return td::Status::Error(ton::ErrorCode::error, "bad value for T (--streamfile): can not initialize blocks stream");
       }
+
+      std::cout << "Stream init successful. Write to: " << fname.str() << std::endl;
+      return td::Status::OK();
+  });
+  p.add_option('p', "streamstatefile", "stream state file", [&](td::Slice fname) {
+      if (!ton::ext::FileStreamWriter::get_instance_state().Init(fname.str())) {
+          return td::Status::Error(ton::ErrorCode::error, "bad value for T (--streamfile): can not initialize blocks stream");
+      }
+
       std::cout << "Stream init successful. Write to: " << fname.str() << std::endl;
       return td::Status::OK();
   });
@@ -3006,7 +3019,8 @@ int main(int argc, char *argv[]) {
   }
 
   // Blocks stream init
-  std::thread t1(streamWorker);
+  std::thread t1(streamBlocksWorker);
+  std::thread t2(streamStateWorker);
 
   td::set_runtime_signal_handler(1, need_stats).ensure();
 

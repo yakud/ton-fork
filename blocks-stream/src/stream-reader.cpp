@@ -1,24 +1,26 @@
-#include "blocks-reader.hpp"
+#include "stream-reader.hpp"
 
-ton::ext::BlocksReader::BlocksReader(ton::ext::BlocksReaderConfig *conf, ton::ext::BlockingQueue<std::string> *output) {
+ton::ext::StreamReader::StreamReader(ton::ext::StreamReaderConfig *conf, ton::ext::BlockingQueue<TcpStreamPacket> *output) {
     queue = output;
     config = conf;
     need_stop.store(false);
-    open_files();
 }
 
-void ton::ext::BlocksReader::open_files() {
+void ton::ext::StreamReader::open_files() {
     std::unique_lock<std::mutex> lock(m);
 
+    std::cout << "is_open " << config->log_filename << std::endl;
     // Open stream log
     if (ifs_log.is_open()) {
         ifs_log.close();
     }
+    std::cout << "start open " << config->log_filename << std::endl;
     ifs_log.open(config->log_filename, std::ifstream::in | std::ifstream::binary);
     if (ifs_log.fail()) {
         throw std::system_error(errno, std::system_category(), "failed to open "+config->log_filename);
     }
     ifs_log.seekg(config->log_seek,std::ios::beg);
+    std::cout << "open " << config->log_filename << std::endl;
 
     // Open stream index
     if (ifs_index.is_open()) {
@@ -40,7 +42,7 @@ void ton::ext::BlocksReader::open_files() {
     }
 }
 
-void ton::ext::BlocksReader::close_files() {
+void ton::ext::StreamReader::close_files() {
     if (ifs_log.is_open()) {
         ifs_log.close();
     }
@@ -52,7 +54,7 @@ void ton::ext::BlocksReader::close_files() {
     }
 }
 
-void ton::ext::BlocksReader::run() {
+void ton::ext::StreamReader::run() {
     std::vector<char> header_buffer(sizeof(uint32_t));
     std::vector<char> block_buffer(BUFFER_SIZE_BLOCK);
 
@@ -90,10 +92,10 @@ void ton::ext::BlocksReader::run() {
 
         // push to queue
         try {
-            queue->push(std::string(&block_buffer[0], data_size));
-//            if (!) {
-//                break;
-//            }
+            queue->push(TcpStreamPacket{
+                config->type,
+                std::string(&block_buffer[0], data_size),
+            });
         } catch (std::exception &e) {
             std::cout << "EXCEPTION catch" << std::endl;
             break;
@@ -107,7 +109,7 @@ void ton::ext::BlocksReader::run() {
     std::cout << "Reader end" << std::endl;
 }
 
-void ton::ext::BlocksReader::store_seek() {
+void ton::ext::StreamReader::store_seek() {
     std::unique_lock<std::mutex> lock(m);
     char buffer[sizeof(long int) * 2];
     std::memcpy(&buffer[0], reinterpret_cast<const char *>(&config->index_seek), sizeof(config->index_seek));
@@ -120,7 +122,7 @@ void ton::ext::BlocksReader::store_seek() {
     ofs_index_seek.flush();
 }
 
-void ton::ext::BlocksReader::load_seek() {
+void ton::ext::StreamReader::load_seek() {
     std::unique_lock<std::mutex> lock(m);
     char buffer[sizeof(long int)];
 
@@ -138,10 +140,10 @@ void ton::ext::BlocksReader::load_seek() {
     config->log_seek = *(reinterpret_cast<long int *>(buffer));
 }
 
-std::thread ton::ext::BlocksReader::spawn() {
+std::thread ton::ext::StreamReader::spawn() {
     return std::thread( [this] { run(); } );
 }
 
-void ton::ext::BlocksReader::stop() {
+void ton::ext::StreamReader::stop() {
     need_stop.store(true);
 }
