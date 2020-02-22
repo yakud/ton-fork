@@ -208,6 +208,48 @@ std::basic_string<char> ton::ext::BlockConverter::bin_to_pretty_custom(td::Buffe
     return outp.str();
 }
 
+ton::BlockId ton::ext::BlockConverter::bin_to_block_id(td::BufferSlice block_data) {
+    auto res = vm::std_boc_deserialize(block_data);
+    if (res.is_error()) {
+        throw std::runtime_error("CANNOT DESERIALIZE BLOCK: " + res.move_as_error().error().public_message() );
+    }
+
+    auto root = res.move_as_ok();
+
+    // root
+    bool is_special;
+    auto cs = vm::load_cell_slice_special(root, is_special);
+    if ( cs.fetch_ulong(32) != 0x11ef55aa ) {
+        throw std::runtime_error("error load cell slice");
+    }
+
+    // global_id
+    if (!cs.have(32)) {
+        throw std::runtime_error("error load global_id");
+    }
+
+    // block info
+    auto ref_info = cs.fetch_ref();
+    block::gen::BlockInfo info;
+    block::gen::BlockInfo::Record info_record;
+    if (info.cell_unpack(ref_info, info_record) ) {
+        block::gen::ShardIdent shard_ident;
+        block::gen::ShardIdent::Record shard_ident_record{};
+        if (shard_ident.unpack(info_record.shard.write(), shard_ident_record)) {
+            ton::BlockId block_id_td(
+                    shard_ident_record.workchain_id,
+                    (shard_ident_record.shard_prefix | (1ULL << (63 - shard_ident_record.shard_pfx_bits))),
+                    info_record.seq_no
+            );
+            return block_id_td;
+        } else {
+            throw std::runtime_error("error load shard ident");
+        }
+    } else {
+        throw std::runtime_error("error load block info");
+    }
+}
+
 std::basic_string<char> ton::ext::BlockConverter::state_to_pretty_custom(td::BufferSlice header_data, td::BufferSlice state_data) {
     // buffer
     std::ostringstream outp;

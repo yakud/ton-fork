@@ -4,23 +4,21 @@ ton::ext::StreamReader::StreamReader(ton::ext::StreamReaderConfig *conf, ton::ex
     queue = output;
     config = conf;
     need_stop.store(false);
+    open_files();
 }
 
 void ton::ext::StreamReader::open_files() {
     std::unique_lock<std::mutex> lock(m);
 
-    std::cout << "is_open " << config->log_filename << std::endl;
     // Open stream log
     if (ifs_log.is_open()) {
         ifs_log.close();
     }
-    std::cout << "start open " << config->log_filename << std::endl;
     ifs_log.open(config->log_filename, std::ifstream::in | std::ifstream::binary);
     if (ifs_log.fail()) {
         throw std::system_error(errno, std::system_category(), "failed to open "+config->log_filename);
     }
     ifs_log.seekg(config->log_seek,std::ios::beg);
-    std::cout << "open " << config->log_filename << std::endl;
 
     // Open stream index
     if (ifs_index.is_open()) {
@@ -33,12 +31,12 @@ void ton::ext::StreamReader::open_files() {
     ifs_index.seekg(config->index_seek, std::ios::beg);
 
     // Open stream index seek
-    if (ofs_index_seek.is_open()) {
-        ofs_index_seek.close();
+    if (fs_index_seek.is_open()) {
+        fs_index_seek.close();
     }
-    ofs_index_seek.open( seek_filename(), std::ofstream::in|std::ofstream::out|std::ofstream::binary);
-    if (ofs_index_seek.fail()) {
-        throw std::system_error(errno, std::system_category(), "failed to open "+seek_filename());
+    fs_index_seek.open( config->seek_filename, std::ios::in|std::ios::out|std::ios::binary);
+    if (fs_index_seek.fail()) {
+        throw std::system_error(errno, std::system_category(), "failed to open "+config->seek_filename);
     }
 }
 
@@ -49,8 +47,8 @@ void ton::ext::StreamReader::close_files() {
     if (ifs_index.is_open()) {
         ifs_index.close();
     }
-    if (ofs_index_seek.is_open()) {
-        ofs_index_seek.close();
+    if (fs_index_seek.is_open()) {
+        fs_index_seek.close();
     }
 }
 
@@ -77,7 +75,7 @@ void ton::ext::StreamReader::run() {
         // calculate data size and read log
         data_size = *(reinterpret_cast<uint32_t *>(header_buffer.data()));
         if (!ifs_log.read(&block_buffer[0], data_size) || ifs_log.gcount() != data_size) {
-            std::cout << ".";
+//            std::cout << ".";
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
             try {
                 open_files();
@@ -94,6 +92,7 @@ void ton::ext::StreamReader::run() {
         try {
             queue->push(TcpStreamPacket{
                 config->type,
+                config->log_seek - data_size,
                 std::string(&block_buffer[0], data_size),
             });
         } catch (std::exception &e) {
@@ -104,6 +103,7 @@ void ton::ext::StreamReader::run() {
         block_buffer.clear();
 
         store_seek();
+//        std::cout << "SEEK STORED!" << config->seek_filename << "\n";
     }
     close_files();
     std::cout << "Reader end" << std::endl;
@@ -114,12 +114,16 @@ void ton::ext::StreamReader::store_seek() {
     char buffer[sizeof(long int) * 2];
     std::memcpy(&buffer[0], reinterpret_cast<const char *>(&config->index_seek), sizeof(config->index_seek));
     std::memcpy(&buffer[sizeof(config->index_seek)], reinterpret_cast<const char *>(&config->log_seek), sizeof(config->log_seek));
-    ofs_index_seek.seekp(0, std::ios::beg);
-    if (!ofs_index_seek.write(buffer, sizeof(config->index_seek)+sizeof(config->log_seek))) {
+    fs_index_seek.seekp(0, std::ios::beg);
+    if (!fs_index_seek.write(buffer, sizeof(config->index_seek)+sizeof(config->log_seek))) {
         std::cerr << "Error write seek index: " << config->index_seek << ":" << config->log_seek << std::endl;
-        throw std::system_error(errno, std::system_category(), "failed to write "+seek_filename());
+        throw std::system_error(errno, std::system_category(), "failed to write "+config->seek_filename);
     }
-    ofs_index_seek.flush();
+    if (!fs_index_seek.flush()) {
+        std::cerr << "Error write seek index: " << config->index_seek << ":" << config->log_seek << std::endl;
+        throw std::system_error(errno, std::system_category(), "failed to write "+config->seek_filename);
+    }
+//    std::cout << buffer << "\n";
 }
 
 void ton::ext::StreamReader::load_seek() {
@@ -127,15 +131,25 @@ void ton::ext::StreamReader::load_seek() {
     char buffer[sizeof(long int)];
 
     // restore index_seek
-    if (!ofs_index_seek.read(&buffer[0], sizeof(long int)) ) {
-        throw std::system_error(errno, std::system_category(), "failed to read "+seek_filename());
+//    ifs_index_seek.seekg(0, std::ios::beg);
+    if (!fs_index_seek.read(buffer, sizeof(long int))) {
+        throw std::system_error(errno, std::system_category(), "failed to read index_seek from "+config->seek_filename);
+    }
+    if (fs_index_seek.gcount() == 0) {
+        return;
+    }
+    if (fs_index_seek.gcount() < int(sizeof(buffer))) {
+        throw std::runtime_error("failed to read "+config->seek_filename + "expected exactly buffer size got less");
     }
     config->index_seek = *(reinterpret_cast<long int *>(buffer));
 
     // restore log_seek
-    ofs_index_seek.seekp(sizeof(long int), std::ios::beg);
-    if (!ofs_index_seek.read(&buffer[0], sizeof(long int))) {
-        throw std::system_error(errno, std::system_category(), "failed to read "+seek_filename());
+    fs_index_seek.seekg(sizeof(long int), std::ios::beg);
+    if (!fs_index_seek.read(buffer, sizeof(long int)) && fs_index_seek.fail()) {
+        throw std::system_error(errno, std::system_category(), "failed to read log_seek from "+config->seek_filename);
+    }
+    if (fs_index_seek.gcount() < int(sizeof(buffer))) {
+        throw std::runtime_error("failed to read "+config->seek_filename + "expected exactly buffer size got less");
     }
     config->log_seek = *(reinterpret_cast<long int *>(buffer));
 }

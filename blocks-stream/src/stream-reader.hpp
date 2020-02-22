@@ -22,6 +22,7 @@ struct StreamReaderConfig {
     TcpStreamPacket::types type;
     std::string log_filename;
     std::string index_filename;
+    std::string seek_filename;
 
     long int log_seek = 0;
     long int index_seek = 0;
@@ -33,7 +34,7 @@ protected:
     StreamReaderConfig *config;
     std::ifstream ifs_log;
     std::ifstream ifs_index;
-    std::fstream ofs_index_seek;
+    std::fstream  fs_index_seek;
 
     std::atomic<bool> need_stop;
     std::mutex m;
@@ -47,9 +48,6 @@ public:
 
     void store_seek();
     void load_seek();
-    std::string seek_filename() {
-        return config->index_filename + ".seek";
-    }
 
     std::thread spawn();
     void run();

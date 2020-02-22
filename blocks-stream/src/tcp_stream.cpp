@@ -32,7 +32,7 @@ void ton::ext::TcpStream::run(int id) {
     std::string next_message_pretty;
     bool stoped = false;
 
-    std::cout << "Started reade queue\n";
+    std::cout << "Started read queue\n";
     try {
         while (!stoped) {
             if (!queue->pop(next_message)) {

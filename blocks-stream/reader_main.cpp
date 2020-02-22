@@ -19,7 +19,6 @@ void signal_handler( int signal_num ) {
 //    sig_caught.store(true);
 }
 
-// https://github.com/jupp0r/prometheus-cpp needed
 int main(int argc, char *argv[]) {
     auto confBlocks = ton::ext::StreamReaderConfig {
         ton::ext::TcpStreamPacket::block
@@ -39,6 +38,7 @@ int main(int argc, char *argv[]) {
     });
     p.add_option('i', "streamblocksindexfile", "stream blocks index file", [&](td::Slice fname) {
         confBlocks.index_filename = fname.str();
+        confBlocks.seek_filename = confBlocks.index_filename + ".seek";
         return td::Status::OK();
     });
     p.add_option('f', "streamstatefile", "stream state file", [&](td::Slice fname) {
@@ -47,6 +47,7 @@ int main(int argc, char *argv[]) {
     });
     p.add_option('a', "streamstateindexfile", "stream state index file", [&](td::Slice fname) {
         confState.index_filename = fname.str();
+        confState.seek_filename = confState.index_filename + ".seek";
         return td::Status::OK();
     });
     p.add_option('h', "host", "stream tcp receiver host", [&](td::Slice fname) {
@@ -148,6 +149,7 @@ int main(int argc, char *argv[]) {
 
     while (!queue.empty()) {
         std::cout << "queue.Size(): " << queue.size() << "!\n";
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
     std::cout << "Waiting for tcp streams...\n";

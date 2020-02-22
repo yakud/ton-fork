@@ -19,6 +19,7 @@ namespace ext {
 class BlockConverter {
 public:
     static std::basic_string<char> bin_to_pretty_custom(td::BufferSlice block_data);
+    static ton::BlockId bin_to_block_id(td::BufferSlice block_data);
     static std::basic_string<char> state_to_pretty_custom(td::BufferSlice header_data, td::BufferSlice state_data);
 };
 

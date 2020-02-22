@@ -38,6 +38,7 @@ struct TcpStreamPacket {
     };
 
     types type;
+    int64_t offset;
     std::string data;
 };
 
