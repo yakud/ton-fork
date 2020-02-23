@@ -8,6 +8,15 @@
 #include <boost/asio.hpp>
 #include <iostream>
 #include <utility>
+#include <condition_variable>
+#include <td/utils/OptionsParser.h>
+#include <common/errorcode.h>
+#include <boost/asio.hpp>
+
+#include <blocks-stream/src/stream-reader.hpp>
+#include <blocks-stream/src/tcp_stream.hpp>
+#include <blocks-stream/src/stream_indexer.hpp>
+#include <blocks-stream/src/tlb_blocks_index.hpp>
 #include "tlb_blocks_index.hpp"
 
 using boost::asio::ip::tcp;

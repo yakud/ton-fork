@@ -38,10 +38,10 @@ void ton::ext::StreamIndexer::run() {
                                 td::BufferSlice(next_message.data.data(), int(next_message.data.size()))
                         );
 
-                        std::cout << "offset: " << next_message.offset
-                            << " | length: " << next_message.data.size()
-                            << " | block: " << block_id.to_str()
-                            << std::endl;
+//                        std::cout << "offset: " << next_message.offset
+//                            << " | length: " << next_message.data.size()
+//                            << " | block: " << block_id.to_str()
+//                            << std::endl;
 
                         tlb_index->add_block_meta(block_id, BlockStreamMeta{
                             .offset = next_message.offset,
@@ -63,7 +63,7 @@ void ton::ext::StreamIndexer::run() {
             next_message.data.clear();
             ++message_count;
 
-            if (message_count % 10 == 0) {
+            if (message_count % 100 == 0) {
                 std::cout << ".";
             }
         }
