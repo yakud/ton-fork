@@ -42,6 +42,9 @@ struct GetAccountState;
 struct GetPrivateKey;
 struct GetDnsResolver;
 struct SendMessage;
+struct RemoteRunSmcMethod;
+struct RemoteRunSmcMethodReturnType;
+
 inline std::string to_string(const int_api::SendMessage&) {
   return "Send message";
 }
@@ -157,6 +160,8 @@ class TonlibClient : public td::actor::Actor {
   static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::decrypt& request);
   static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::kdf& request);
 
+  static object_ptr<tonlib_api::Object> do_static_request(const tonlib_api::msg_decryptWithProof& request);
+
   template <class P>
   td::Status do_request(const tonlib_api::runTests& request, P&&);
   template <class P>
@@ -191,6 +196,8 @@ class TonlibClient : public td::actor::Actor {
   td::Status do_request(const tonlib_api::decrypt& request, P&&);
   template <class P>
   td::Status do_request(const tonlib_api::kdf& request, P&&);
+  template <class P>
+  td::Status do_request(const tonlib_api::msg_decryptWithProof& request, P&&);
 
   void make_any_request(tonlib_api::Function& function, QueryContext query_context,
                         td::Promise<tonlib_api::object_ptr<tonlib_api::Object>>&& promise);
@@ -226,6 +233,8 @@ class TonlibClient : public td::actor::Actor {
 
   td::Status do_request(const tonlib_api::getAccountState& request,
                         td::Promise<object_ptr<tonlib_api::fullAccountState>>&& promise);
+  td::Status do_request(const tonlib_api::guessAccountRevision& request,
+                        td::Promise<object_ptr<tonlib_api::accountRevisionList>>&& promise);
 
   td::Status do_request(tonlib_api::sync& request, td::Promise<object_ptr<tonlib_api::ton_blockIdExt>>&& promise);
 
@@ -243,6 +252,11 @@ class TonlibClient : public td::actor::Actor {
   td::Status do_request(const tonlib_api::exportEncryptedKey& request,
                         td::Promise<object_ptr<tonlib_api::exportedEncryptedKey>>&& promise);
   td::Status do_request(const tonlib_api::importEncryptedKey& request,
+                        td::Promise<object_ptr<tonlib_api::key>>&& promise);
+
+  td::Status do_request(const tonlib_api::exportUnencryptedKey& request,
+                        td::Promise<object_ptr<tonlib_api::exportedUnencryptedKey>>&& promise);
+  td::Status do_request(const tonlib_api::importUnencryptedKey& request,
                         td::Promise<object_ptr<tonlib_api::key>>&& promise);
 
   td::Status do_request(const tonlib_api::changeLocalPassword& request,
@@ -271,6 +285,9 @@ class TonlibClient : public td::actor::Actor {
 
   td::Status do_request(tonlib_api::createQuery& request, td::Promise<object_ptr<tonlib_api::query_info>>&& promise);
 
+  td::Status do_request(tonlib_api::msg_decrypt& request,
+                        td::Promise<object_ptr<tonlib_api::msg_dataDecryptedArray>>&& promise);
+
   td::int64 next_smc_id_{0};
   std::map<td::int64, td::unique_ptr<AccountState>> smcs_;
 
@@ -290,14 +307,20 @@ class TonlibClient : public td::actor::Actor {
 
   td::Status do_request(const tonlib_api::dns_resolve& request,
                         td::Promise<object_ptr<tonlib_api::dns_resolved>>&& promise);
-  void do_dns_request(std::string name, td::int32 category, block::StdAddress address,
-                      td::Promise<object_ptr<tonlib_api::dns_resolved>>&& promise);
-  void finish_dns_resolve(std::string name, td::int32 category, td::unique_ptr<AccountState> smc,
-                          td::Promise<object_ptr<tonlib_api::dns_resolved>>&& promise);
+  void do_dns_request(std::string name, td::int32 category, td::int32 ttl, td::optional<ton::BlockIdExt> block_id,
+                      block::StdAddress address, td::Promise<object_ptr<tonlib_api::dns_resolved>>&& promise);
+  struct DnsFinishData {
+    ton::BlockIdExt block_id;
+    ton::SmartContract::State smc_state;
+  };
+  void finish_dns_resolve(std::string name, td::int32 category, td::int32 ttl, td::optional<ton::BlockIdExt> block_id,
+                          DnsFinishData dns_finish_data, td::Promise<object_ptr<tonlib_api::dns_resolved>>&& promise);
 
   td::Status do_request(int_api::GetAccountState request, td::Promise<td::unique_ptr<AccountState>>&&);
   td::Status do_request(int_api::GetPrivateKey request, td::Promise<KeyStorage::PrivateKey>&&);
   td::Status do_request(int_api::GetDnsResolver request, td::Promise<block::StdAddress>&&);
+  td::Status do_request(int_api::RemoteRunSmcMethod request,
+                        td::Promise<int_api::RemoteRunSmcMethodReturnType>&& promise);
   td::Status do_request(int_api::SendMessage request, td::Promise<td::Unit>&& promise);
 
   td::Status do_request(const tonlib_api::liteServer_getInfo& request,

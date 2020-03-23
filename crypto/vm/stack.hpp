@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -146,6 +146,15 @@ class StackEntry {
   }
   bool is_atom() const {
     return tp == t_atom;
+  }
+  bool is_int() const {
+    return tp == t_int;
+  }
+  bool is_cell() const {
+    return tp == t_cell;
+  }
+  bool is_null() const {
+    return tp == t_null;
   }
   bool is(int wanted) const {
     return tp == wanted;
@@ -348,6 +357,10 @@ class Stack : public td::CntObject {
   void pop_many(int count) {
     stack.resize(stack.size() - count);
   }
+  void pop_many(int count, int offs) {
+    std::move(stack.cend() - offs, stack.cend(), stack.end() - (count + offs));
+    pop_many(count);
+  }
   void drop_bottom(int count) {
     std::move(stack.cbegin() + count, stack.cend(), stack.begin());
     pop_many(count);
@@ -428,6 +441,12 @@ class Stack : public td::CntObject {
       set_contents(*ref);
     }
     return *this;
+  }
+  std::vector<StackEntry> extract_contents() const & {
+    return stack;
+  }
+  std::vector<StackEntry> extract_contents() && {
+    return std::move(stack);
   }
   template <typename... Args>
   const Stack& check_underflow(Args... args) const {

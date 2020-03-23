@@ -48,6 +48,7 @@ set(TON_CRYPTO_SOURCE
   common/refint.h
   common/bigexp.h
   common/util.h
+  common/linalloc.hpp
 
   ellcurve/Ed25519.h
   ellcurve/Fp25519.h
@@ -375,6 +376,7 @@ if (NOT CMAKE_CROSSCOMPILING)
   GenFif(DEST smartcont/auto/restricted-wallet2-code SOURCE smartcont/restricted-wallet2-code.fc NAME restricted-wallet2)
 
   GenFif(DEST smartcont/auto/dns-manual-code SOURCE smartcont/dns-manual-code.fc NAME dns-manual)
+  GenFif(DEST smartcont/auto/dns-auto-code SOURCE smartcont/dns-auto-code.fc NAME dns-auto)
 
   GenFif(DEST smartcont/auto/simple-wallet-ext-code SOURCE smartcont/simple-wallet-ext-code.fc NAME simple-wallet-ext)
 endif()
@@ -389,7 +391,7 @@ endif()
 add_executable(create-state block/create-state.cpp)
 target_include_directories(create-state PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
-target_link_libraries(create-state PUBLIC ton_crypto fift-lib ton_block)
+target_link_libraries(create-state PUBLIC ton_crypto fift-lib ton_block tonlib)
 if (WINGETOPT_FOUND)
   target_link_libraries_system(create-state wingetopt)
 endif()

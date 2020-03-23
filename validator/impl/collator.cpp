@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "collator-impl.h"
 #include "vm/boc.h"
@@ -510,6 +510,7 @@ bool Collator::unpack_last_mc_state() {
   global_id_ = config_->get_global_blockchain_id();
   ihr_enabled_ = config_->ihr_enabled();
   create_stats_enabled_ = config_->create_stats_enabled();
+  report_version_ = config_->has_capability(ton::capReportVersion);
   shard_conf_ = std::make_unique<block::ShardConfig>(*config_);
   prev_key_block_exists_ = config_->get_last_key_block(prev_key_block_, prev_key_block_lt_);
   if (prev_key_block_exists_) {
@@ -529,6 +530,16 @@ bool Collator::unpack_last_mc_state() {
              << ", " << block_limits_->bytes.hard() << "]";
   LOG(DEBUG) << "block limits: gas [" << block_limits_->gas.underload() << ", " << block_limits_->gas.soft() << ", "
              << block_limits_->gas.hard() << "]";
+  if (config_->has_capabilities() && (config_->get_capabilities() & ~supported_capabilities)) {
+    LOG(ERROR) << "block generation capabilities " << config_->get_capabilities()
+               << " have been enabled in global configuration, but we support only " << supported_capabilities
+               << " (upgrade validator software?)";
+  }
+  if (config_->get_global_version() > supported_version) {
+    LOG(ERROR) << "block version " << config_->get_global_version()
+               << " have been enabled in global configuration, but we support only " << supported_version
+               << " (upgrade validator software?)";
+  }
   // TODO: extract start_lt and end_lt from prev_mc_block as well
   // std::cerr << "  block::gen::ShardState::print_ref(mc_state_root) = ";
   // block::gen::t_ShardState.print_ref(std::cerr, mc_state_root, 2);
@@ -589,9 +600,9 @@ void Collator::got_neighbor_out_queue(int i, td::Result<Ref<MessageQueue>> res) 
     return;
   }
   descr.set_queue_root(qinfo.out_queue->prefetch_ref(0));
-  // TODO: comment the next two lines in the future when the output queues become huge
-  CHECK(block::gen::t_OutMsgQueueInfo.validate_ref(outq_descr->root_cell()));
-  CHECK(block::tlb::t_OutMsgQueueInfo.validate_ref(outq_descr->root_cell()));
+  // comment the next two lines in the future when the output queues become huge
+  //  CHECK(block::gen::t_OutMsgQueueInfo.validate_ref(1000000, outq_descr->root_cell()));
+  //  CHECK(block::tlb::t_OutMsgQueueInfo.validate_ref(1000000, outq_descr->root_cell()));
   // unpack ProcessedUpto
   LOG(DEBUG) << "unpacking ProcessedUpto of neighbor " << descr.blk_.to_str();
   if (verbosity >= 2) {
@@ -1457,6 +1468,7 @@ bool Collator::init_lt() {
 }
 
 bool Collator::fetch_config_params() {
+  old_mparams_ = config_->get_config_param(9);
   {
     auto res = config_->get_storage_prices();
     if (res.is_error()) {
@@ -1501,12 +1513,13 @@ bool Collator::fetch_config_params() {
         block::MsgPrices{rec.lump_price,           rec.bit_price,          rec.cell_price, rec.ihr_price_factor,
                          (unsigned)rec.first_frac, (unsigned)rec.next_frac};
     action_phase_cfg_.workchains = &config_->get_workchain_list();
+    action_phase_cfg_.bounce_msg_body = (config_->has_capability(ton::capBounceMsgBody) ? 256 : 0);
   }
   {
     // fetch block_grams_created
     auto cell = config_->get_config_param(14);
     if (cell.is_null()) {
-      basechain_create_fee_ = masterchain_create_fee_ = td::RefInt256{true, 0};
+      basechain_create_fee_ = masterchain_create_fee_ = td::zero_refint();
     } else {
       block::gen::BlockCreateFees::Record create_fees;
       if (!(tlb::unpack_cell(cell, create_fees) &&
@@ -1628,7 +1641,7 @@ bool Collator::do_collate() {
     return fatal_error("cannot compute the value to be created / minted / recovered");
   }
   // 2. tick transactions
-  LOG(DEBUG) << "create tick transactions";
+  LOG(INFO) << "create tick transactions";
   if (!create_ticktock_transactions(2)) {
     return fatal_error("cannot generate tick transactions");
   }
@@ -1642,18 +1655,18 @@ bool Collator::do_collate() {
     // ...
   }
   // 4. import inbound internal messages, process or transit
-  LOG(DEBUG) << "process inbound internal messages";
+  LOG(INFO) << "process inbound internal messages";
   if (!process_inbound_internal_messages()) {
     return fatal_error("cannot process inbound internal messages");
   }
   // 5. import inbound external messages (if space&gas left)
-  LOG(DEBUG) << "process inbound external messages";
+  LOG(INFO) << "process inbound external messages";
   if (!process_inbound_external_messages()) {
     return fatal_error("cannot process inbound external messages");
   }
   // 6. process newly-generated messages (if space&gas left)
   //    (if we were unable to process all inbound messages, all new messages must be queued)
-  LOG(DEBUG) << "process newly-generated messages";
+  LOG(INFO) << "process newly-generated messages";
   if (!process_new_messages(!inbound_queues_empty_)) {
     return fatal_error("cannot process newly-generated outbound messages");
   }
@@ -1664,12 +1677,12 @@ bool Collator::do_collate() {
     // ...
   }
   // 8. tock transactions
-  LOG(DEBUG) << "create tock transactions";
+  LOG(INFO) << "create tock transactions";
   if (!create_ticktock_transactions(1)) {
     return fatal_error("cannot generate tock transactions");
   }
   // 9. process newly-generated messages (only by including them into output queue)
-  LOG(DEBUG) << "enqueue newly-generated messages";
+  LOG(INFO) << "enqueue newly-generated messages";
   if (!process_new_messages(true)) {
     return fatal_error("cannot process newly-generated outbound messages");
   }
@@ -1781,7 +1794,7 @@ bool Collator::out_msg_queue_cleanup() {
     block::gen::t_OutMsgQueue.print(std::cerr, *rt);
     rt->print_rec(std::cerr);
   }
-  CHECK(block::gen::t_OutMsgQueue.validate(*rt));  // DEBUG, comment later if SLOW
+  // CHECK(block::gen::t_OutMsgQueue.validate_upto(100000, *rt));  // DEBUG, comment later if SLOW
   return register_out_msg_queue_op(true);
 }
 
@@ -1853,13 +1866,13 @@ bool Collator::combine_account_transactions() {
         block::gen::t_AccountBlock.print_ref(std::cerr, cell);
         csr->print_rec(std::cerr);
       }
-      if (!block::gen::t_AccountBlock.validate_ref(cell)) {
+      if (!block::gen::t_AccountBlock.validate_ref(100000, cell)) {
         block::gen::t_AccountBlock.print_ref(std::cerr, cell);
         csr->print_rec(std::cerr);
         return fatal_error(std::string{"new AccountBlock for "} + z.first.to_hex() +
                            " failed to pass automatic validation tests");
       }
-      if (!block::tlb::t_AccountBlock.validate_ref(cell)) {
+      if (!block::tlb::t_AccountBlock.validate_ref(100000, cell)) {
         block::gen::t_AccountBlock.print_ref(std::cerr, cell);
         csr->print_rec(std::cerr);
         return fatal_error(std::string{"new AccountBlock for "} + z.first.to_hex() +
@@ -1923,10 +1936,10 @@ bool Collator::combine_account_transactions() {
     block::gen::t_ShardAccountBlocks.print_ref(std::cerr, shard_account_blocks_);
     vm::load_cell_slice(shard_account_blocks_).print_rec(std::cerr);
   }
-  if (!block::gen::t_ShardAccountBlocks.validate_ref(shard_account_blocks_)) {
+  if (!block::gen::t_ShardAccountBlocks.validate_ref(100000, shard_account_blocks_)) {
     return fatal_error("new ShardAccountBlocks failed to pass automatic validity tests");
   }
-  if (!block::tlb::t_ShardAccountBlocks.validate_ref(shard_account_blocks_)) {
+  if (!block::tlb::t_ShardAccountBlocks.validate_ref(100000, shard_account_blocks_)) {
     return fatal_error("new ShardAccountBlocks failed to pass handwritten validity tests");
   }
   auto shard_accounts = account_dict->get_root();
@@ -1937,10 +1950,10 @@ bool Collator::combine_account_transactions() {
   }
   if (verify >= 2) {
     LOG(INFO) << "verifying new ShardAccounts";
-    if (!block::gen::t_ShardAccounts.validate(*shard_accounts)) {
+    if (!block::gen::t_ShardAccounts.validate_upto(100000, *shard_accounts)) {
       return fatal_error("new ShardAccounts failed to pass automatic validity tests");
     }
-    if (!block::tlb::t_ShardAccounts.validate(*shard_accounts)) {
+    if (!block::tlb::t_ShardAccounts.validate_upto(100000, *shard_accounts)) {
       return fatal_error("new ShardAccounts failed to pass handwritten validity tests");
     }
   }
@@ -2968,7 +2981,7 @@ bool Collator::create_mc_state_extra() {
   auto cfg_smc_config = cfg_res.move_as_ok();
   CHECK(cfg_smc_config.not_null());
   vm::Dictionary cfg_dict{cfg_smc_config, 32};
-  if (!block::valid_config_data(cfg_smc_config, config_addr, true, true)) {
+  if (!block::valid_config_data(cfg_smc_config, config_addr, true, true, old_mparams_)) {
     block::gen::t_Hashmap_32_Ref_Cell.print_ref(std::cerr, cfg_smc_config);
     return fatal_error("configuration smart contract "s + config_addr.to_hex() +
                        " contains an invalid configuration in its data");
@@ -3012,7 +3025,7 @@ bool Collator::create_mc_state_extra() {
     std::cerr << "updated shard configuration to ";
     block::gen::t_ShardHashes.print(std::cerr, *state_extra.shard_hashes);
   }
-  if (!block::gen::t_ShardHashes.validate(*state_extra.shard_hashes)) {
+  if (!block::gen::t_ShardHashes.validate_upto(10000, *state_extra.shard_hashes)) {
     return fatal_error("new ShardHashes is invalid");
   }
   // 4. check extension flags
@@ -3110,7 +3123,7 @@ bool Collator::create_mc_state_extra() {
     state_extra.r1.block_create_stats = cs;
     if (verify >= 2) {
       LOG(INFO) << "verifying new BlockCreateStats";
-      if (!block::gen::t_BlockCreateStats.validate_csr(cs)) {
+      if (!block::gen::t_BlockCreateStats.validate_csr(100000, cs)) {
         cs->print_rec(std::cerr);
         block::gen::t_BlockCreateStats.print(std::cerr, *cs);
         return fatal_error("BlockCreateStats in the new masterchain state failed to pass automated validity checks");
@@ -3128,8 +3141,8 @@ bool Collator::create_mc_state_extra() {
   }
   if (verify >= 2) {
     LOG(INFO) << "verifying new McStateExtra";
-    CHECK(block::gen::t_McStateExtra.validate_ref(mc_state_extra_));
-    CHECK(block::tlb::t_McStateExtra.validate_ref(mc_state_extra_));
+    CHECK(block::gen::t_McStateExtra.validate_ref(1000000, mc_state_extra_));
+    CHECK(block::tlb::t_McStateExtra.validate_ref(1000000, mc_state_extra_));
   }
   LOG(INFO) << "McStateExtra created";
   return true;
@@ -3241,7 +3254,7 @@ bool Collator::try_fetch_new_config(const ton::StdSmcAddress& cfg_addr, Ref<vm::
     return false;
   }
   auto cfg = cfg_res.move_as_ok();
-  if (!block::valid_config_data(cfg, cfg_addr, true)) {
+  if (!block::valid_config_data(cfg, cfg_addr, true, false, old_mparams_)) {
     LOG(ERROR) << "new configuration smart contract " << cfg_addr.to_hex()
                << " contains a new configuration which is invalid, ignoring";
     return false;
@@ -3467,8 +3480,8 @@ bool Collator::create_shard_state() {
   }
   if (verify >= 2) {
     LOG(INFO) << "verifying new ShardState";
-    CHECK(block::gen::t_ShardState.validate_ref(state_root));
-    CHECK(block::tlb::t_ShardState.validate_ref(state_root));
+    CHECK(block::gen::t_ShardState.validate_ref(1000000, state_root));
+    CHECK(block::tlb::t_ShardState.validate_ref(1000000, state_root));
   }
   LOG(INFO) << "creating Merkle update for the ShardState";
   state_update = vm::MerkleUpdate::generate(prev_state_root_, state_root, state_usage_tree_.get());
@@ -3570,7 +3583,7 @@ bool Collator::create_block_info(Ref<vm::Cell>& block_info) {
          && cb.store_bool_bool(want_split_)                         // want_split:Bool
          && cb.store_bool_bool(want_merge_)                         // want_merge:Bool
          && cb.store_bool_bool(is_key_block_)                       // key_block:Bool
-         && cb.store_long_bool(0, 9)                                // vert_seqno_incr:(## 1) flags:(## 8)
+         && cb.store_long_bool((int)report_version_, 9)             // vert_seqno_incr:(## 1) flags:(## 8)
          && cb.store_long_bool(new_block_seqno, 32)                 // seq_no:#
          && cb.store_long_bool(vert_seqno_, 32)                     // vert_seq_no:#
          && block::ShardId{shard}.serialize(cb)                     // shard:ShardIdent
@@ -3581,11 +3594,16 @@ bool Collator::create_block_info(Ref<vm::Cell>& block_info) {
          && cb.store_long_bool(cc_seqno, 32)                        // gen_catchain_seqno:uint32
          && cb.store_long_bool(min_ref_mc_seqno_, 32)               // min_ref_mc_seqno:uint32
          && cb.store_long_bool(prev_key_block_seqno_, 32)           // prev_key_block_seqno:uint32
+         && (!report_version_ || store_version(cb))                 // gen_software:flags . 0?GlobalVersion
          && (mc || (store_master_ref(cb2)                           // master_ref:not_master?
                     && cb.store_builder_ref_bool(std::move(cb2))))  // .. ^BlkMasterInfo
          && store_prev_blk_ref(cb2, after_merge_)                   // prev_ref:..
          && cb.store_builder_ref_bool(std::move(cb2))               // .. ^(PrevBlkInfo after_merge)
          && cb.finalize_to(block_info);
+}
+
+bool Collator::store_version(vm::CellBuilder& cb) const {
+  return block::gen::t_GlobalVersion.pack_capabilities(cb, supported_version, supported_capabilities);
 }
 
 bool Collator::store_zero_state_ref(vm::CellBuilder& cb) {
@@ -3688,7 +3706,7 @@ bool Collator::create_block() {
   }
   if (verify >= 1) {
     LOG(INFO) << "verifying new Block";
-    if (!block::gen::t_Block.validate_ref(new_block)) {
+    if (!block::gen::t_Block.validate_ref(1000000, new_block)) {
       return fatal_error("new Block failed to pass automatic validity tests");
     }
   }
@@ -3836,10 +3854,10 @@ td::Result<bool> Collator::register_external_message_cell(Ref<vm::Cell> ext_msg,
       return td::Status::Error("external message has been rejected before");
     }
   }
-  if (!block::gen::t_Message_Any.validate_ref(ext_msg)) {
+  if (!block::gen::t_Message_Any.validate_ref(256, ext_msg)) {
     return td::Status::Error("external message is not a (Message Any) according to automated checks");
   }
-  if (!block::tlb::t_Message.validate_ref(ext_msg)) {
+  if (!block::tlb::t_Message.validate_ref(256, ext_msg)) {
     return td::Status::Error("external message is not a (Message Any) according to hand-written checks");
   }
   block::gen::CommonMsgInfo::Record_ext_in_msg_info info;

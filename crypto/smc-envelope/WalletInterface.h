@@ -31,8 +31,11 @@ class WalletInterface {
   struct Gift {
     block::StdAddress destination;
     td::int64 gramms;
+
     bool is_encrypted{false};
     std::string message;
+
+    td::Ref<vm::Cell> body;
   };
 
   virtual ~WalletInterface() {
@@ -42,7 +45,7 @@ class WalletInterface {
   virtual td::Result<td::Ref<vm::Cell>> make_a_gift_message(const td::Ed25519::PrivateKey &private_key,
                                                             td::uint32 valid_until, td::Span<Gift> gifts) const = 0;
   virtual td::Result<td::Ed25519::PublicKey> get_public_key() const {
-    return td::Status::Error("TODO");
+    return td::Status::Error("Unsupported");
   }
 
   td::Result<td::Ref<vm::Cell>> get_init_message(const td::Ed25519::PrivateKey &private_key,
@@ -50,6 +53,13 @@ class WalletInterface {
     return make_a_gift_message(private_key, valid_until, {});
   }
   static void store_gift_message(vm::CellBuilder &cb, const Gift &gift) {
+    if (gift.body.not_null()) {
+      auto body = vm::load_cell_slice(gift.body);
+      //TODO: handle error
+      cb.append_cellslice_bool(body);
+      return;
+    }
+
     if (gift.is_encrypted) {
       cb.store_long(1, 32);
     } else {

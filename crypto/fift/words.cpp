@@ -177,41 +177,25 @@ void interpret_divmod(vm::Stack& stack, int round_mode) {
 }
 
 void interpret_times_div(vm::Stack& stack, int round_mode) {
-  auto z = stack.pop_int();
-  auto y = stack.pop_int();
-  auto x = stack.pop_int();
-  td::BigIntG<257 * 2> tmp{0};
-  tmp.add_mul(*x, *y);
-  auto q = td::RefInt256{true};
-  tmp.mod_div(*z, q.unique_write(), round_mode);
-  q.unique_write().normalize();
-  stack.push_int(std::move(q));
+  auto z = stack.pop_int(), y = stack.pop_int(), x = stack.pop_int();
+  stack.push_int(muldiv(std::move(x), std::move(y), std::move(z), round_mode));
 }
 
 void interpret_times_divmod(vm::Stack& stack, int round_mode) {
-  auto z = stack.pop_int();
-  auto y = stack.pop_int();
-  auto x = stack.pop_int();
-  td::BigIntG<257 * 2> tmp{0};
-  tmp.add_mul(*x, *y);
-  auto q = td::RefInt256{true};
-  tmp.mod_div(*z, q.unique_write(), round_mode);
-  q.unique_write().normalize();
-  auto r = td::RefInt256{true, tmp};
-  stack.push_int(std::move(q));
-  stack.push_int(std::move(r));
+  auto z = stack.pop_int(), y = stack.pop_int(), x = stack.pop_int();
+  auto dm = muldivmod(std::move(x), std::move(y), std::move(z));
+  stack.push_int(std::move(dm.first));
+  stack.push_int(std::move(dm.second));
 }
 
 void interpret_times_mod(vm::Stack& stack, int round_mode) {
   auto z = stack.pop_int();
   auto y = stack.pop_int();
   auto x = stack.pop_int();
-  td::BigIntG<257 * 2> tmp{0};
+  typename td::BigInt256::DoubleInt tmp{0}, q;
   tmp.add_mul(*x, *y);
-  td::BigIntG<257 * 2> q;
   tmp.mod_div(*z, q, round_mode);
-  auto r = td::RefInt256{true, tmp};
-  stack.push_int(std::move(r));
+  stack.push_int(td::make_refint(tmp));
 }
 
 void interpret_negate(vm::Stack& stack) {
@@ -253,21 +237,21 @@ void interpret_fits(vm::Stack& stack, bool sgnd) {
 
 void interpret_pow2(vm::Stack& stack) {
   int x = stack.pop_smallint_range(255);
-  auto r = td::RefInt256{true};
+  auto r = td::make_refint();
   r.unique_write().set_pow2(x);
   stack.push_int(r);
 }
 
 void interpret_neg_pow2(vm::Stack& stack) {
   int x = stack.pop_smallint_range(256);
-  auto r = td::RefInt256{true};
+  auto r = td::make_refint();
   r.unique_write().set_pow2(x).negate().normalize();
   stack.push_int(r);
 }
 
 void interpret_pow2_minus1(vm::Stack& stack) {
   int x = stack.pop_smallint_range(256);
-  auto r = td::RefInt256{true};
+  auto r = td::make_refint();
   r.unique_write().set_pow2(x).add_tiny(-1).normalize();
   stack.push_int(r);
 }
@@ -301,19 +285,18 @@ void interpret_times_rshift(vm::Stack& stack, int round_mode) {
   int z = stack.pop_smallint_range(256);
   auto y = stack.pop_int();
   auto x = stack.pop_int();
-  td::BigIntG<257 * 2> tmp{0};
+  typename td::BigInt256::DoubleInt tmp{0};
   tmp.add_mul(*x, *y).rshift(z, round_mode).normalize();
-  auto q = td::RefInt256{true, tmp};
-  stack.push_int(std::move(q));
+  stack.push_int(td::make_refint(tmp));
 }
 
 void interpret_lshift_div(vm::Stack& stack, int round_mode) {
   int z = stack.pop_smallint_range(256);
   auto y = stack.pop_int();
   auto x = stack.pop_int();
-  td::BigIntG<257 * 2> tmp{*x};
+  typename td::BigInt256::DoubleInt tmp{*x};
   tmp <<= z;
-  auto q = td::RefInt256{true};
+  auto q = td::make_refint();
   tmp.mod_div(*y, q.unique_write(), round_mode);
   q.unique_write().normalize();
   stack.push_int(std::move(q));
@@ -1556,64 +1539,69 @@ void interpret_dict_get(vm::Stack& stack, int sgnd, int mode) {
   }
 }
 
-void interpret_dict_map(IntCtx& ctx) {
+void interpret_dict_map(IntCtx& ctx, bool ext, bool sgnd) {
   auto func = pop_exec_token(ctx);
   int n = ctx.stack.pop_smallint_range(vm::Dictionary::max_key_bits);
-  vm::Dictionary dict{ctx.stack.pop_maybe_cell(), n};
-  vm::Dictionary::simple_map_func_t simple_map = [&ctx, func](vm::CellBuilder& cb, Ref<vm::CellSlice> cs_ref) -> bool {
-    ctx.stack.push_builder(Ref<vm::CellBuilder>(cb));
-    ctx.stack.push_cellslice(std::move(cs_ref));
-    func->run(ctx);
-    assert(cb.is_unique());
-    if (!ctx.stack.pop_bool()) {
-      return false;
+  vm::Dictionary dict{ctx.stack.pop_maybe_cell(), n}, dict2{n};
+  for (auto entry : dict.range(false, sgnd)) {
+    ctx.stack.push_builder(Ref<vm::CellBuilder>{true});
+    if (ext) {
+      ctx.stack.push_int(dict.key_as_integer(entry.first, sgnd));
     }
-    Ref<vm::CellBuilder> cb_ref = ctx.stack.pop_builder();
-    cb = *cb_ref;
-    return true;
+    ctx.stack.push_cellslice(std::move(entry.second));
+    func->run(ctx);
+    if (ctx.stack.pop_bool()) {
+      if (!dict2.set_builder(entry.first, n, ctx.stack.pop_builder())) {
+        throw IntError{"cannot insert value into dictionary"};
+      }
+    }
   };
-  dict.map(std::move(simple_map));
-  ctx.stack.push_maybe_cell(std::move(dict).extract_root_cell());
+  ctx.stack.push_maybe_cell(std::move(dict2).extract_root_cell());
 }
 
-void interpret_dict_map_ext(IntCtx& ctx, bool sgnd) {
+void interpret_dict_foreach(IntCtx& ctx, bool reverse, bool sgnd) {
   auto func = pop_exec_token(ctx);
   int n = ctx.stack.pop_smallint_range(vm::Dictionary::max_key_bits);
   vm::Dictionary dict{ctx.stack.pop_maybe_cell(), n};
-  vm::Dictionary::map_func_t map_func = [&ctx, func, sgnd](vm::CellBuilder& cb, Ref<vm::CellSlice> cs_ref,
-                                                           td::ConstBitPtr key, int key_len) -> bool {
-    ctx.stack.push_builder(Ref<vm::CellBuilder>(cb));
-    td::RefInt256 x{true};
-    x.unique_write().import_bits(key, key_len, sgnd);
-    ctx.stack.push_int(std::move(x));
-    ctx.stack.push_cellslice(std::move(cs_ref));
+  for (auto entry : dict.range(reverse, sgnd)) {
+    ctx.stack.push_int(dict.key_as_integer(entry.first, sgnd));
+    ctx.stack.push_cellslice(std::move(entry.second));
     func->run(ctx);
-    assert(cb.is_unique());
     if (!ctx.stack.pop_bool()) {
-      return false;
+      ctx.stack.push_bool(false);
+      return;
     }
-    Ref<vm::CellBuilder> cb_ref = ctx.stack.pop_builder();
-    cb = *cb_ref;
-    return true;
   };
-  dict.map(std::move(map_func));
-  ctx.stack.push_maybe_cell(std::move(dict).extract_root_cell());
+  ctx.stack.push_bool(true);
 }
 
-void interpret_dict_foreach(IntCtx& ctx, bool sgnd) {
+// mode: +1 = reverse, +2 = signed, +4 = strict, +8 = lookup backwards, +16 = with hint
+void interpret_dict_foreach_from(IntCtx& ctx, int mode) {
+  if (mode < 0) {
+    mode = ctx.stack.pop_smallint_range(31);
+  }
   auto func = pop_exec_token(ctx);
   int n = ctx.stack.pop_smallint_range(vm::Dictionary::max_key_bits);
   vm::Dictionary dict{ctx.stack.pop_maybe_cell(), n};
-  vm::Dictionary::foreach_func_t foreach_func = [&ctx, func, sgnd](Ref<vm::CellSlice> cs_ref, td::ConstBitPtr key,
-                                                                   int key_len) -> bool {
-    td::RefInt256 x{true};
-    x.unique_write().import_bits(key, key_len, sgnd);
-    ctx.stack.push_int(std::move(x));
-    ctx.stack.push_cellslice(std::move(cs_ref));
+  vm::DictIterator it{dict, mode & 3};
+  unsigned char buffer[vm::Dictionary::max_key_bytes];
+  for (int s = (mode >> 4) & 1; s >= 0; --s) {
+    auto key = dict.integer_key(ctx.stack.pop_int(), n, mode & 2, buffer);
+    if (!key.is_valid()) {
+      throw IntError{"not enough bits for a dictionary key"};
+    }
+    it.lookup(key, mode & 4, mode & 8);
+  }
+  for (; !it.eof(); ++it) {
+    ctx.stack.push_int(dict.key_as_integer(it.cur_pos(), mode & 2));
+    ctx.stack.push_cellslice(it.cur_value());
     func->run(ctx);
-    return ctx.stack.pop_bool();
+    if (!ctx.stack.pop_bool()) {
+      ctx.stack.push_bool(false);
+      return;
+    }
   };
-  ctx.stack.push_bool(dict.check_for_each(std::move(foreach_func), sgnd));
+  ctx.stack.push_bool(true);
 }
 
 void interpret_dict_merge(IntCtx& ctx) {
@@ -1621,24 +1609,33 @@ void interpret_dict_merge(IntCtx& ctx) {
   int n = ctx.stack.pop_smallint_range(vm::Dictionary::max_key_bits);
   vm::Dictionary dict2{ctx.stack.pop_maybe_cell(), n};
   vm::Dictionary dict1{ctx.stack.pop_maybe_cell(), n};
-  vm::Dictionary::simple_combine_func_t simple_combine = [&ctx, func](vm::CellBuilder& cb, Ref<vm::CellSlice> cs1_ref,
-                                                                      Ref<vm::CellSlice> cs2_ref) -> bool {
-    ctx.stack.push_builder(Ref<vm::CellBuilder>(cb));
-    ctx.stack.push_cellslice(std::move(cs1_ref));
-    ctx.stack.push_cellslice(std::move(cs2_ref));
-    func->run(ctx);
-    assert(cb.is_unique());
-    if (!ctx.stack.pop_bool()) {
-      return false;
+  vm::Dictionary dict3{n};
+  auto it1 = dict1.begin(), it2 = dict2.begin();
+  while (!it1.eof() || !it2.eof()) {
+    int c = it1.eof() ? 1 : (it2.eof() ? -1 : it1.cur_pos().compare(it2.cur_pos(), n));
+    bool ok = true;
+    if (c < 0) {
+      ok = dict3.set(it1.cur_pos(), n, it1.cur_value());
+      ++it1;
+    } else if (c > 0) {
+      ok = dict3.set(it2.cur_pos(), n, it2.cur_value());
+      ++it2;
+    } else {
+      ctx.stack.push_builder(Ref<vm::CellBuilder>{true});
+      ctx.stack.push_cellslice(it1.cur_value());
+      ctx.stack.push_cellslice(it2.cur_value());
+      func->run(ctx);
+      if (ctx.stack.pop_bool()) {
+        ok = dict3.set_builder(it1.cur_pos(), n, ctx.stack.pop_builder());
+      }
+      ++it1;
+      ++it2;
     }
-    Ref<vm::CellBuilder> cb_ref = ctx.stack.pop_builder();
-    cb = *cb_ref;
-    return true;
-  };
-  if (!dict1.combine_with(dict2, std::move(simple_combine))) {
-    throw IntError{"cannot combine dictionaries"};
+    if (!ok) {
+      throw IntError{"cannot insert value into dictionary"};
+    }
   }
-  ctx.stack.push_maybe_cell(std::move(dict1).extract_root_cell());
+  ctx.stack.push_maybe_cell(std::move(dict3).extract_root_cell());
 }
 
 void interpret_dict_diff(IntCtx& ctx) {
@@ -1646,17 +1643,40 @@ void interpret_dict_diff(IntCtx& ctx) {
   int n = ctx.stack.pop_smallint_range(vm::Dictionary::max_key_bits);
   vm::Dictionary dict2{ctx.stack.pop_maybe_cell(), n};
   vm::Dictionary dict1{ctx.stack.pop_maybe_cell(), n};
-  vm::Dictionary::scan_diff_func_t scan_value_pair =
-      [&ctx, func](td::ConstBitPtr key, int key_len, Ref<vm::CellSlice> cs1_ref, Ref<vm::CellSlice> cs2_ref) -> bool {
-    td::RefInt256 x{true};
-    x.unique_write().import_bits(key, key_len, false);
-    ctx.stack.push_int(std::move(x));
-    ctx.stack.push_maybe_cellslice(std::move(cs1_ref));
-    ctx.stack.push_maybe_cellslice(std::move(cs2_ref));
-    func->run(ctx);
-    return ctx.stack.pop_bool();
-  };
-  ctx.stack.push_bool(dict1.scan_diff(dict2, std::move(scan_value_pair)));
+  auto it1 = dict1.begin(), it2 = dict2.begin();
+  while (!it1.eof() || !it2.eof()) {
+    int c = it1.eof() ? 1 : (it2.eof() ? -1 : it1.cur_pos().compare(it2.cur_pos(), n));
+    bool run = true;
+    if (c < 0) {
+      ctx.stack.push_int(dict1.key_as_integer(it1.cur_pos()));
+      ctx.stack.push_cellslice(it1.cur_value());
+      ctx.stack.push_null();
+      ++it1;
+    } else if (c > 0) {
+      ctx.stack.push_int(dict2.key_as_integer(it2.cur_pos()));
+      ctx.stack.push_null();
+      ctx.stack.push_cellslice(it2.cur_value());
+      ++it2;
+    } else {
+      if (!it1.cur_value()->contents_equal(*it2.cur_value())) {
+        ctx.stack.push_int(dict1.key_as_integer(it1.cur_pos()));
+        ctx.stack.push_cellslice(it1.cur_value());
+        ctx.stack.push_cellslice(it2.cur_value());
+      } else {
+        run = false;
+      }
+      ++it1;
+      ++it2;
+    }
+    if (run) {
+      func->run(ctx);
+      if (!ctx.stack.pop_bool()) {
+        ctx.stack.push_bool(false);
+        return;
+      }
+    }
+  }
+  ctx.stack.push_bool(true);
 }
 
 void interpret_pfx_dict_add(vm::Stack& stack, vm::Dictionary::SetMode mode, bool add_builder) {
@@ -1895,7 +1915,7 @@ int parse_number(std::string s, td::RefInt256& num, td::RefInt256& denom, bool a
   const char* str = s.c_str();
   int len = (int)s.size();
   int frac = -1, base, *frac_ptr = allow_frac ? &frac : nullptr;
-  num = td::RefInt256{true};
+  num = td::make_refint();
   auto& x = num.unique_write();
   if (len >= 4 && str[0] == '-' && str[1] == '0' && (str[2] == 'x' || str[2] == 'b')) {
     if (str[2] == 'x') {
@@ -1937,7 +1957,7 @@ int parse_number(std::string s, td::RefInt256& num, td::RefInt256& denom, bool a
   if (frac < 0) {
     return 1;
   } else {
-    denom = td::RefInt256{true, 1};
+    denom = td::make_refint(1);
     while (frac-- > 0) {
       if (!denom.unique_write().mul_tiny(base).normalize_bool()) {
         if (throw_error) {
@@ -2209,6 +2229,7 @@ std::vector<Ref<vm::Cell>> get_vm_libraries() {
 // +16 = load c7 (smart-contract context)
 // +32 = return c5 (actions)
 // +64 = log vm ops to stderr
+// +128 = pop hard gas limit (enabled by ACCEPT) from stack as well
 void interpret_run_vm(IntCtx& ctx, int mode) {
   if (mode < 0) {
     mode = ctx.stack.pop_smallint_range(0xff);
@@ -2216,7 +2237,13 @@ void interpret_run_vm(IntCtx& ctx, int mode) {
   bool with_data = mode & 4;
   Ref<vm::Tuple> c7;
   Ref<vm::Cell> data, actions;
+  long long gas_max = (mode & 128) ? ctx.stack.pop_long_range(vm::GasLimits::infty) : vm::GasLimits::infty;
   long long gas_limit = (mode & 8) ? ctx.stack.pop_long_range(vm::GasLimits::infty) : vm::GasLimits::infty;
+  if (!(mode & 128)) {
+    gas_max = gas_limit;
+  } else {
+    gas_max = std::max(gas_max, gas_limit);
+  }
   if (mode & 16) {
     c7 = ctx.stack.pop_tuple();
   }
@@ -2226,7 +2253,7 @@ void interpret_run_vm(IntCtx& ctx, int mode) {
   auto cs = ctx.stack.pop_cellslice();
   OstreamLogger ostream_logger(ctx.error_stream);
   auto log = create_vm_log((mode & 64) && ctx.error_stream ? &ostream_logger : nullptr);
-  vm::GasLimits gas{gas_limit};
+  vm::GasLimits gas{gas_limit, gas_max};
   int res =
       vm::run_vm_code(cs, ctx.stack, mode & 3, &data, log, nullptr, &gas, get_vm_libraries(), std::move(c7), &actions);
   ctx.stack.push_smallint(res);
@@ -2776,11 +2803,14 @@ void init_words_common(Dictionary& d) {
   d.def_stack_word("pfxdict!+ ", std::bind(interpret_pfx_dict_add, _1, vm::Dictionary::SetMode::Add, false));
   d.def_stack_word("pfxdict! ", std::bind(interpret_pfx_dict_add, _1, vm::Dictionary::SetMode::Set, false));
   d.def_stack_word("pfxdict@ ", interpret_pfx_dict_get);
-  d.def_ctx_word("dictmap ", interpret_dict_map);
-  d.def_ctx_word("dictmapext ", std::bind(interpret_dict_map_ext, _1, false));
-  d.def_ctx_word("idictmapext ", std::bind(interpret_dict_map_ext, _1, true));
-  d.def_ctx_word("dictforeach ", std::bind(interpret_dict_foreach, _1, false));
-  d.def_ctx_word("idictforeach ", std::bind(interpret_dict_foreach, _1, true));
+  d.def_ctx_word("dictmap ", std::bind(interpret_dict_map, _1, false, false));
+  d.def_ctx_word("dictmapext ", std::bind(interpret_dict_map, _1, true, false));
+  d.def_ctx_word("idictmapext ", std::bind(interpret_dict_map, _1, true, true));
+  d.def_ctx_word("dictforeach ", std::bind(interpret_dict_foreach, _1, false, false));
+  d.def_ctx_word("idictforeach ", std::bind(interpret_dict_foreach, _1, false, true));
+  d.def_ctx_word("dictforeachrev ", std::bind(interpret_dict_foreach, _1, true, false));
+  d.def_ctx_word("idictforeachrev ", std::bind(interpret_dict_foreach, _1, true, true));
+  d.def_ctx_word("dictforeachfromx ", std::bind(interpret_dict_foreach_from, _1, -1));
   d.def_ctx_word("dictmerge ", interpret_dict_merge);
   d.def_ctx_word("dictdiff ", interpret_dict_diff);
   // slice/bitstring constants

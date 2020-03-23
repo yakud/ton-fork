@@ -32,6 +32,7 @@
 // INVALID_ACCOUNT_ADDRESS
 // INVALID_CONFIG
 // INVALID_PEM_KEY
+// INVALID_REVISION
 // MESSAGE_TOO_LONG
 // EMPTY_FIELD
 // INVALID_FIELD
@@ -80,6 +81,9 @@ struct TonlibError {
   static td::Status InvalidPemKey() {
     return td::Status::Error(400, "INVALID_PEM_KEY");
   }
+  static td::Status InvalidRevision() {
+    return td::Status::Error(400, "INVALID_REVISION");
+  }
   static td::Status NeedConfig() {
     return td::Status::Error(400, "NeedConfig");
   }
@@ -94,6 +98,9 @@ struct TonlibError {
   }
   static td::Status DangerousTransaction(td::Slice reason) {
     return td::Status::Error(400, PSLICE() << "DANGEROUS_TRANSACTION: " << reason);
+  }
+  static td::Status MessageEncryption(td::Slice reason) {
+    return td::Status::Error(400, PSLICE() << "MESSAGE_ENCRYPTION: " << reason);
   }
   static td::Status AccountNotInited() {
     return td::Status::Error(400, "ACCOUNT_NOT_INITED");

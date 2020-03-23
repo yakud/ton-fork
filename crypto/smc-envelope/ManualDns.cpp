@@ -146,6 +146,23 @@ td::Result<DnsInterface::EntryData> DnsInterface::EntryData::from_cellslice(vm::
   return td::Status::Error("Unknown entry data");
 }
 
+SmartContract::Args DnsInterface::resolve_args_raw(td::Slice encoded_name, td::int16 category) {
+  SmartContract::Args res;
+  res.set_method_id("dnsresolve");
+  res.set_stack(
+      {vm::load_cell_slice_ref(vm::CellBuilder().store_bytes(encoded_name).finalize()), td::make_refint(category)});
+  return res;
+}
+
+td::Result<SmartContract::Args> DnsInterface::resolve_args(td::Slice name, td::int32 category_big) {
+  TRY_RESULT(category, td::narrow_cast_safe<td::int16>(category_big));
+  if (name.size() > get_default_max_name_size()) {
+    return td::Status::Error("Name is too long");
+  }
+  auto encoded_name = encode_name(name);
+  return resolve_args_raw(encoded_name, category);
+}
+
 td::Result<std::vector<DnsInterface::Entry>> DnsInterface::resolve(td::Slice name, td::int32 category) const {
   TRY_RESULT(raw_entries, resolve_raw(name, category));
   std::vector<Entry> entries;
@@ -177,11 +194,32 @@ td::Result<std::vector<DnsInterface::Entry>> DnsInterface::resolve(td::Slice nam
 		[UInt<256b>:new_public_key]
 */
 // creation
-td::Ref<ManualDns> ManualDns::create(td::Ref<vm::Cell> data) {
-  return td::Ref<ManualDns>(true, State{ton::SmartContractCode::dns_manual(), std::move(data)});
+td::Ref<ManualDns> ManualDns::create(td::Ref<vm::Cell> data, int revision) {
+  return td::Ref<ManualDns>(
+      true, State{ton::SmartContractCode::get_code(ton::SmartContractCode::ManualDns, revision), std::move(data)});
 }
-td::Ref<ManualDns> ManualDns::create(const td::Ed25519::PublicKey& public_key, td::uint32 wallet_id) {
-  return create(create_init_data_fast(public_key, wallet_id));
+
+td::Ref<ManualDns> ManualDns::create(const td::Ed25519::PublicKey& public_key, td::uint32 wallet_id, int revision) {
+  return create(create_init_data_fast(public_key, wallet_id), revision);
+}
+
+td::optional<td::int32> ManualDns::guess_revision(const vm::Cell::Hash& code_hash) {
+  for (auto i : ton::SmartContractCode::get_revisions(ton::SmartContractCode::ManualDns)) {
+    if (ton::SmartContractCode::get_code(ton::SmartContractCode::ManualDns, i)->get_hash() == code_hash) {
+      return i;
+    }
+  }
+  return {};
+}
+td::optional<td::int32> ManualDns::guess_revision(const block::StdAddress& address,
+                                                  const td::Ed25519::PublicKey& public_key, td::uint32 wallet_id) {
+  for (auto i : {-1, 1}) {
+    auto dns = ton::ManualDns::create(public_key, wallet_id, i);
+    if (dns->get_address() == address) {
+      return i;
+    }
+  }
+  return {};
 }
 
 td::Result<td::uint32> ManualDns::get_wallet_id() const {
@@ -202,13 +240,13 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_set_value_unsigned(td::int16 cat
   vm::CellBuilder cb;
   cb.store_long(11, 6);
   if (name.size() <= 58 - 2) {
-    cb.store_long(0, 1);
     cb.store_long(category, 16);
+    cb.store_long(0, 1);
     cb.store_long(name.size(), 6);
     cb.store_bytes(name);
   } else {
-    cb.store_long(1, 1);
     cb.store_long(category, 16);
+    cb.store_long(1, 1);
     cb.store_ref(vm::CellBuilder().store_bytes(name).finalize());
   }
   cb.store_maybe_ref(std::move(data));
@@ -220,16 +258,15 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_delete_value_unsigned(td::int16 
   vm::CellBuilder cb;
   cb.store_long(12, 6);
   if (name.size() <= 58 - 2) {
-    cb.store_long(0, 1);
     cb.store_long(category, 16);
+    cb.store_long(0, 1);
     cb.store_long(name.size(), 6);
     cb.store_bytes(name);
   } else {
-    cb.store_long(1, 1);
     cb.store_long(category, 16);
+    cb.store_long(1, 1);
     cb.store_ref(vm::CellBuilder().store_bytes(name).finalize());
   }
-  cb.store_long(0, 1);
   return cb.finalize();
 }
 
@@ -237,7 +274,6 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_delete_all_unsigned() const {
   // 32 TDel: nullify ENTIRE DOMAIN TABLE (x=-)
   vm::CellBuilder cb;
   cb.store_long(32, 6);
-  cb.store_long(0, 1);
   return cb.finalize();
 }
 
@@ -269,7 +305,6 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_set_all_unsigned(td::Span<Action
 
   vm::CellBuilder cb;
   cb.store_long(31, 6);
-  cb.store_long(1, 1);
 
   cb.store_maybe_ref(pdict.get_root_cell());
 
@@ -291,7 +326,6 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_delete_name_unsigned(td::Slice n
     cb.store_long(1, 1);
     cb.store_ref(vm::CellBuilder().store_bytes(name).finalize());
   }
-  cb.store_long(0, 1);
   return cb.finalize();
 }
 td::Result<td::Ref<vm::Cell>> ManualDns::create_set_name_unsigned(td::Slice name, td::Span<Action> entries) const {
@@ -344,7 +378,6 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_init_query(const td::Ed25519::Pr
                                                            td::uint32 valid_until) const {
   vm::CellBuilder cb;
   cb.store_long(0, 6);
-  cb.store_long(0, 1);
 
   TRY_RESULT(prepared, prepare(cb.finalize(), valid_until));
   return sign(private_key, std::move(prepared));
@@ -359,7 +392,7 @@ td::Ref<vm::Cell> ManualDns::create_init_data_fast(const td::Ed25519::PublicKey&
 }
 
 size_t ManualDns::get_max_name_size() const {
-  return 128;
+  return get_default_max_name_size();
 }
 
 td::Result<std::vector<ManualDns::RawEntry>> ManualDns::resolve_raw(td::Slice name, td::int32 category_big) const {
@@ -372,9 +405,7 @@ td::Result<std::vector<ManualDns::RawEntry>> ManualDns::resolve_raw_or_throw(td:
     return td::Status::Error("Name is too long");
   }
   auto encoded_name = encode_name(name);
-  auto res = run_get_method(
-      "dnsresolve",
-      {vm::load_cell_slice_ref(vm::CellBuilder().store_bytes(encoded_name).finalize()), td::make_refint(category)});
+  auto res = run_get_method(resolve_args_raw(encoded_name, category));
   if (!res.success) {
     return td::Status::Error("get method failed");
   }
@@ -455,7 +486,7 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_update_query(td::Ed25519::Privat
   return sign(pk, std::move(prepared));
 }
 
-std::string ManualDns::encode_name(td::Slice name) {
+std::string DnsInterface::encode_name(td::Slice name) {
   std::string res;
   while (!name.empty()) {
     auto pos = name.rfind('.');
@@ -471,7 +502,7 @@ std::string ManualDns::encode_name(td::Slice name) {
   return res;
 }
 
-std::string ManualDns::decode_name(td::Slice name) {
+std::string DnsInterface::decode_name(td::Slice name) {
   std::string res;
   if (!name.empty() && name.back() == 0) {
     name.remove_suffix(1);

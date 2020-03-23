@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "validate-query.hpp"
 #include "top-shard-descr.hpp"
@@ -499,7 +499,7 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
   }
   if (block::gen::t_TopBlockDescrSet.has_valid_tag(cs)) {
     LOG(DEBUG) << "collated datum # " << idx << " is a TopBlockDescrSet";
-    if (!block::gen::t_TopBlockDescrSet.validate(cs)) {
+    if (!block::gen::t_TopBlockDescrSet.validate_upto(10000, cs)) {
       return reject_query("invalid TopBlockDescrSet");
     }
     if (top_shard_descr_dict_) {
@@ -679,6 +679,17 @@ bool ValidateQuery::try_unpack_mc_state() {
     config_->set_block_id_ext(mc_blkid_);
     ihr_enabled_ = config_->ihr_enabled();
     create_stats_enabled_ = config_->create_stats_enabled();
+    if (config_->has_capabilities() && (config_->get_capabilities() & ~supported_capabilities)) {
+      LOG(ERROR) << "block generation capabilities " << config_->get_capabilities()
+                 << " have been enabled in global configuration, but we support only " << supported_capabilities
+                 << " (upgrade validator software?)";
+    }
+    if (config_->get_global_version() > supported_version) {
+      LOG(ERROR) << "block version " << config_->get_global_version()
+                 << " have been enabled in global configuration, but we support only " << supported_version
+                 << " (upgrade validator software?)";
+    }
+
     old_shard_conf_ = std::make_unique<block::ShardConfig>(*config_);
     if (!is_masterchain()) {
       new_shard_conf_ = std::make_unique<block::ShardConfig>(*config_);
@@ -728,6 +739,7 @@ bool ValidateQuery::try_unpack_mc_state() {
 
 // almost the same as in Collator
 bool ValidateQuery::fetch_config_params() {
+  old_mparams_ = config_->get_config_param(9);
   {
     auto res = config_->get_storage_prices();
     if (res.is_error()) {
@@ -771,12 +783,13 @@ bool ValidateQuery::fetch_config_params() {
         block::MsgPrices{rec.lump_price,           rec.bit_price,          rec.cell_price, rec.ihr_price_factor,
                          (unsigned)rec.first_frac, (unsigned)rec.next_frac};
     action_phase_cfg_.workchains = &config_->get_workchain_list();
+    action_phase_cfg_.bounce_msg_body = (config_->has_capability(ton::capBounceMsgBody) ? 256 : 0);
   }
   {
     // fetch block_grams_created
     auto cell = config_->get_config_param(14);
     if (cell.is_null()) {
-      basechain_create_fee_ = masterchain_create_fee_ = td::RefInt256{true, 0};
+      basechain_create_fee_ = masterchain_create_fee_ = td::zero_refint();
     } else {
       block::gen::BlockCreateFees::Record create_fees;
       if (!(tlb::unpack_cell(cell, create_fees) &&
@@ -1229,8 +1242,8 @@ void ValidateQuery::got_neighbor_out_queue(int i, td::Result<Ref<MessageQueue>> 
   descr.set_queue_root(qinfo.out_queue->prefetch_ref(0));
   // TODO: comment the next two lines in the future when the output queues become huge
   // (do this carefully)
-  CHECK(block::gen::t_OutMsgQueueInfo.validate_ref(outq_descr->root_cell()));
-  CHECK(block::tlb::t_OutMsgQueueInfo.validate_ref(outq_descr->root_cell()));
+  CHECK(block::gen::t_OutMsgQueueInfo.validate_ref(1000000, outq_descr->root_cell()));
+  CHECK(block::tlb::t_OutMsgQueueInfo.validate_ref(1000000, outq_descr->root_cell()));
   // unpack ProcessedUpto
   LOG(DEBUG) << "unpacking ProcessedUpto of neighbor " << descr.blk_.to_str();
   if (verbosity >= 2) {
@@ -2049,13 +2062,13 @@ bool ValidateQuery::unpack_block_data() {
   auto outmsg_cs = vm::load_cell_slice_ref(std::move(extra.out_msg_descr));
   // run some hand-written checks from block::tlb::
   // (automatic tests from block::gen:: have been already run for the entire block)
-  if (!block::tlb::t_InMsgDescr.validate(*inmsg_cs)) {
+  if (!block::tlb::t_InMsgDescr.validate_upto(1000000, *inmsg_cs)) {
     return reject_query("InMsgDescr of the new block failed to pass handwritten validity tests");
   }
-  if (!block::tlb::t_OutMsgDescr.validate(*outmsg_cs)) {
+  if (!block::tlb::t_OutMsgDescr.validate_upto(1000000, *outmsg_cs)) {
     return reject_query("OutMsgDescr of the new block failed to pass handwritten validity tests");
   }
-  if (!block::tlb::t_ShardAccountBlocks.validate_ref(extra.account_blocks)) {
+  if (!block::tlb::t_ShardAccountBlocks.validate_ref(1000000, extra.account_blocks)) {
     return reject_query("ShardAccountBlocks of the new block failed to pass handwritten validity tests");
   }
   in_msg_dict_ = std::make_unique<vm::AugmentedDictionary>(std::move(inmsg_cs), 256, block::tlb::aug_InMsgDescr);
@@ -2274,11 +2287,11 @@ bool ValidateQuery::precheck_one_account_update(td::ConstBitPtr acc_id, Ref<vm::
                         "AccountBlock for this account");
   }
   if (new_value.not_null()) {
-    if (!block::gen::t_ShardAccount.validate_csr(new_value)) {
+    if (!block::gen::t_ShardAccount.validate_csr(10000, new_value)) {
       return reject_query("new state of account "s + acc_id.to_hex(256) +
                           " failed to pass automated validity checks for ShardAccount");
     }
-    if (!block::tlb::t_ShardAccount.validate_csr(new_value)) {
+    if (!block::tlb::t_ShardAccount.validate_csr(10000, new_value)) {
       return reject_query("new state of account "s + acc_id.to_hex(256) +
                           " failed to pass hand-written validity checks for ShardAccount");
     }
@@ -2428,10 +2441,10 @@ bool ValidateQuery::precheck_one_account_block(td::ConstBitPtr acc_id, Ref<vm::C
     return reject_query("(HASH_UPDATE Account) from the AccountBlock of "s + acc_id.to_hex(256) +
                         " has incorrect new hash");
   }
-  if (!block::gen::t_AccountBlock.validate(*acc_blk_root)) {
+  if (!block::gen::t_AccountBlock.validate_upto(1000000, *acc_blk_root)) {
     return reject_query("AccountBlock of "s + acc_id.to_hex(256) + " failed to pass automated validity checks");
   }
-  if (!block::tlb::t_AccountBlock.validate(*acc_blk_root)) {
+  if (!block::tlb::t_AccountBlock.validate_upto(1000000, *acc_blk_root)) {
     return reject_query("AccountBlock of "s + acc_id.to_hex(256) + " failed to pass hand-written validity checks");
   }
   unsigned last_trans_lt_len = 1;
@@ -4794,17 +4807,17 @@ bool ValidateQuery::check_new_state() {
 }
 
 bool ValidateQuery::check_config_update(Ref<vm::CellSlice> old_conf_params, Ref<vm::CellSlice> new_conf_params) {
-  if (!block::gen::t_ConfigParams.validate_csr(new_conf_params)) {
+  if (!block::gen::t_ConfigParams.validate_csr(10000, new_conf_params)) {
     return reject_query("new configuration failed to pass automated validity checks");
   }
-  if (!block::gen::t_ConfigParams.validate_csr(old_conf_params)) {
+  if (!block::gen::t_ConfigParams.validate_csr(10000, old_conf_params)) {
     return fatal_error("old configuration failed to pass automated validity checks");
   }
   td::Bits256 old_cfg_addr, new_cfg_addr;
   Ref<vm::Cell> old_cfg_root, new_cfg_root;
   CHECK(block::gen::t_ConfigParams.unpack_cons1(old_conf_params.write(), old_cfg_addr, old_cfg_root) &&
         block::gen::t_ConfigParams.unpack_cons1(new_conf_params.write(), new_cfg_addr, new_cfg_root));
-  if (!block::valid_config_data(new_cfg_root, new_cfg_addr, true)) {
+  if (!block::valid_config_data(new_cfg_root, new_cfg_addr, true, false, old_mparams_)) {
     return reject_query(
         "new configuration parameters failed to pass per-parameter automated validity checks, or one of mandatory "
         "configuration parameters is missing");
@@ -4829,9 +4842,9 @@ bool ValidateQuery::check_config_update(Ref<vm::CellSlice> old_conf_params, Ref<
         "the new configuration is different from that stored in the persistent data of the (new) configuration smart contract "s +
         old_cfg_addr.to_hex());
   }
-  if (!block::valid_config_data(ocfg_root, old_cfg_addr, true, true)) {
+  if (!block::valid_config_data(ocfg_root, old_cfg_addr, true, true, old_mparams_)) {
     return reject_query("configuration extracted from (old) configuration smart contract "s + old_cfg_addr.to_hex() +
-                        " failed to pass per-parameted validity checks, or one of mandatory parameters is missing");
+                        " failed to pass per-parameter validity checks, or one of mandatory parameters is missing");
   }
   if (block::important_config_parameters_changed(new_cfg_root, old_cfg_root)) {
     // same as the check in Collator::create_mc_state_extra()
@@ -4883,7 +4896,7 @@ bool ValidateQuery::check_config_update(Ref<vm::CellSlice> old_conf_params, Ref<
     return true;
   }
   auto wcfg_root = wcfg_res.move_as_ok();
-  if (!block::valid_config_data(wcfg_root, want_cfg_addr, true)) {
+  if (!block::valid_config_data(wcfg_root, want_cfg_addr, true, false, old_mparams_)) {
     LOG(WARNING)
         << "switching of configuration smart contract did not happen because the configuration extracted from "
            "suggested new configuration smart contract "
@@ -4908,7 +4921,8 @@ bool ValidateQuery::check_one_prev_dict_update(ton::BlockSeqno seqno, Ref<vm::Ce
   }
   CHECK(new_val_extra.not_null());
   vm::CellSlice cs{*new_val_extra};
-  if (!(block::gen::t_KeyMaxLt.validate_skip(cs) && block::gen::t_KeyExtBlkRef.validate_skip(cs) && cs.empty_ext())) {
+  if (!(block::gen::t_KeyMaxLt.validate_skip_upto(16, cs) && block::gen::t_KeyExtBlkRef.validate_skip_upto(16, cs) &&
+        cs.empty_ext())) {
     return reject_query(PSTRING() << "entry with seqno " << seqno
                                   << " in the new previous blocks dictionary failed to pass automated validity checks "
                                      "form KeyMaxLt + KeyExtBlkRef");
@@ -5039,7 +5053,7 @@ bool ValidateQuery::check_mc_state_extra() {
                                   << " while the block header claims is_key_block=" << is_key_block_);
   }
   // last_key_block:(Maybe ExtBlkRef)
-  if (!block::gen::t_Maybe_ExtBlkRef.validate_csr(new_extra.r1.last_key_block)) {
+  if (!block::gen::t_Maybe_ExtBlkRef.validate_csr(16, new_extra.r1.last_key_block)) {
     return reject_query(
         "last_key_block:(Maybe ExtBlkRef) in the new masterchain state failed to pass automated validity checks");
   }
@@ -5360,7 +5374,7 @@ bool ValidateQuery::try_validate() {
       }
     }
     LOG(INFO) << "running automated validity checks for block candidate " << id_.to_str();
-    if (!block::gen::t_Block.validate_ref(block_root_)) {
+    if (!block::gen::t_Block.validate_ref(1000000, block_root_)) {
       return reject_query("block "s + id_.to_str() + " failed to pass automated validity checks");
     }
     if (!fix_all_processed_upto()) {
