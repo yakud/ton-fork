@@ -105,6 +105,10 @@ void ton::ext::TlbBlocksIndex::load_index_block_meta() {
         block_meta.size =  *(reinterpret_cast<int64_t *>(&buffer[offset]));
 
         blocks_index[blocks_id] = block_meta;
+
+        if (count_loadaed == 0) {
+            std::cout << "First block in index: " << blocks_id.to_str() << "\n";
+        }
         count_loadaed++;
     }
 

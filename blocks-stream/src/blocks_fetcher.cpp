@@ -52,20 +52,28 @@ void ton::ext::session_start(tcp::socket sock, TlbBlocksIndex *blocks_index) {
             std::basic_string<char> message;
 
             ton::BlockId block_id;
+            td::uint32 format;
             auto r = std::sscanf(
                     data,
-                    "(%d,%" SCNx64 ",%u)",
+                    "(%d,%" SCNx64 ",%u):%d",
                     &block_id.workchain,
                     &block_id.shard,
-                    &block_id.seqno
+                    &block_id.seqno,
+                    &format
             );
-            if (r != 3) {
+            if (r != 4) {
                 message = block_id_error;
             } else {
                 try {
-                    auto block = blocks_index->get_block_tlb(block_id, block_buffer);
-//                    auto block = blocks_index->get_block_pretty_custom(block_id, block_buffer);
-                    message = block.as_slice().str();
+                    if (format == 0 || format == 1) {
+                        auto block = blocks_index->get_block_tlb(block_id, block_buffer);
+                        message = block.as_slice().str();
+                    } else if (format == 2) {
+                        auto block = blocks_index->get_block_pretty_custom(block_id, block_buffer);
+                        message = block;
+                    } else {
+                        message = block_id_error;
+                    }
                 } catch (std::exception &e) {
                     message = block_not_found;
                 }
