@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "manager.hpp"
 #include "validator-group.hpp"
@@ -1413,6 +1413,9 @@ void ValidatorManagerImpl::start_up() {
       }
       fname = fname.substr(8);
 
+      while (fname.size() > 1 && fname[0] == '0') {
+        fname.remove_prefix(1);
+      }
       auto v = td::to_integer_safe<BlockSeqno>(fname);
       if (v.is_error()) {
         return;
@@ -1486,6 +1489,10 @@ bool ValidatorManagerImpl::out_of_sync() {
     return false;
   }
 
+  if (last_masterchain_seqno_ < last_known_key_block_handle_->id().seqno()) {
+    return true;
+  }
+
   if (validator_groups_.size() > 0 && last_known_key_block_handle_->id().seqno() <= last_masterchain_seqno_) {
     return false;
   }
@@ -1510,7 +1517,7 @@ void ValidatorManagerImpl::download_next_archive() {
   }
 
   auto seqno = std::min(last_masterchain_seqno_, shard_client_handle_->id().seqno());
-  auto it = to_import_.upper_bound(seqno);
+  auto it = to_import_.upper_bound(seqno + 1);
   if (it != to_import_.begin()) {
     it--;
     if (it->second.second) {
@@ -1698,9 +1705,19 @@ void ValidatorManagerImpl::update_shards() {
   std::map<ValidatorSessionId, td::actor::ActorOwn<ValidatorGroup>> new_validator_groups_;
   std::map<ValidatorSessionId, td::actor::ActorOwn<ValidatorGroup>> new_next_validator_groups_;
 
+  bool force_recover = false;
+  {
+    auto val_set = last_masterchain_state_->get_validator_set(ShardIdFull{masterchainId});
+    auto r = opts_->check_unsafe_catchain_rotate(last_masterchain_seqno_, val_set->get_catchain_seqno());
+    force_recover = r > 0;
+  }
+
   if (allow_validate_) {
     for (auto &desc : new_shards) {
       auto shard = desc.first;
+      if (force_recover && !desc.first.is_masterchain()) {
+        continue;
+      }
       auto prev = desc.second;
       for (auto &p : prev) {
         CHECK(p.is_valid());
@@ -1713,14 +1730,26 @@ void ValidatorManagerImpl::update_shards() {
       if (!validator_id.is_zero()) {
         auto val_group_id = get_validator_set_id(shard, val_set, opts_hash);
 
-        // DIRTY. But we don't want to create hardfork now
-        // TODO! DELETE IT LATER
-        if (last_masterchain_seqno_ >= 2904932 && val_set->get_catchain_seqno() == 44896) {
-          if (opts_->zero_block_id().file_hash.to_hex() ==
-              "5E994FCF4D425C0A6CE6A792594B7173205F740A39CD56F537DEFD28B48A0F6E") {
-            val_group_id[0] = !val_group_id[0];
+        if (force_recover) {
+          auto r = opts_->check_unsafe_catchain_rotate(last_masterchain_seqno_, val_set->get_catchain_seqno());
+          if (r) {
+            td::uint8 b[36];
+            td::MutableSlice x{b, 36};
+            x.copy_from(val_group_id.as_slice());
+            x.remove_prefix(32);
+            CHECK(x.size() == 4);
+            x.copy_from(td::Slice(reinterpret_cast<const td::uint8 *>(&r), 4));
+            val_group_id = sha256_bits256(td::Slice(b, 36));
           }
         }
+        // DIRTY. But we don't want to create hardfork now
+        // TODO! DELETE IT LATER
+        //if (last_masterchain_seqno_ >= 2904932 && val_set->get_catchain_seqno() == 44896) {
+        //  if (opts_->zero_block_id().file_hash.to_hex() ==
+        //      "5E994FCF4D425C0A6CE6A792594B7173205F740A39CD56F537DEFD28B48A0F6E") {
+        //    val_group_id[0] = !val_group_id[0];
+        //  }
+        //}
 
         VLOG(VALIDATOR_DEBUG) << "validating group " << val_group_id;
         auto it = validator_groups_.find(val_group_id);
@@ -1861,9 +1890,10 @@ td::actor::ActorOwn<ValidatorGroup> ValidatorManagerImpl::create_validator_group
   } else {
     auto validator_id = get_validator(shard, validator_set);
     CHECK(!validator_id.is_zero());
-    auto G = td::actor::create_actor<ValidatorGroup>("validatorgroup", shard, validator_id, session_id, validator_set,
-                                                     opts, keyring_, adnl_, rldp_, overlays_, db_root_, actor_id(this),
-                                                     init_session);
+    auto G = td::actor::create_actor<ValidatorGroup>(
+        "validatorgroup", shard, validator_id, session_id, validator_set, opts, keyring_, adnl_, rldp_, overlays_,
+        db_root_, actor_id(this), init_session,
+        opts_->check_unsafe_resync_allowed(validator_set->get_catchain_seqno()));
     return G;
   }
 }
@@ -2214,6 +2244,10 @@ void ValidatorManagerImpl::try_get_static_file(FileHash file_hash, td::Promise<t
 }
 
 void ValidatorManagerImpl::get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::uint64> promise) {
+  if (masterchain_seqno > last_masterchain_seqno_) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "masterchain seqno too big"));
+    return;
+  }
   td::actor::send_closure(db_, &Db::get_archive_id, masterchain_seqno, std::move(promise));
 }
 
