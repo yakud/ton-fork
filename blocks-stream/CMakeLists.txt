@@ -31,16 +31,23 @@ set(BLOCKS_STREAM_SOURCE
         src/account-extractor.cpp
         src/account-extractor.hpp
         src/stream_indexer.hpp
-        src/stream_indexer.cpp)
+        src/stream_indexer.cpp
+        src/tlb_blocks_index.hpp
+        src/tlb_blocks_index.cpp
+        src/blocks_fetcher.cpp
+        src/blocks_fetcher.hpp
+)
 
 #add_executable(blocks-stream ${BLOCKS_STREAM_SOURCE})
 add_executable(blocks-stream-reader reader_main.cpp ${BLOCKS_STREAM_SOURCE})
-add_executable(blocks-fetcher blocks_fetcher.cpp ${BLOCKS_STREAM_SOURCE} src/tlb_blocks_index.cpp src/tlb_blocks_index.hpp src/blocks_fetcher.cpp src/blocks_fetcher.hpp)
+add_executable(blocks-fetcher blocks_fetcher.cpp ${BLOCKS_STREAM_SOURCE})
 
 target_link_libraries(blocks-stream-reader
-        tdutils tdutils tdactor adnllite tl_api tl_lite_api tl-lite-utils ton_crypto ton_block dht overlay
-        Boost::date_time Boost::system Boost::iostreams Boost::program_options validator overlay catchain validatorsession ton_crypto ton_block)
+        tdutils tdutils tdactor adnl tl_api tl_lite_api tl-lite-utils ton_crypto ton_block dht overlay
+        Boost::date_time Boost::system Boost::iostreams Boost::program_options validator catchain validatorsession ton_crypto ton_block
+        rldp full-node ton_validator fift-lib memprof)
 
 target_link_libraries(blocks-fetcher
-        tdutils tdutils tdactor adnllite tl_api tl_lite_api tl-lite-utils ton_crypto ton_block dht overlay
-        Boost::date_time Boost::system Boost::iostreams Boost::program_options validator overlay catchain validatorsession ton_crypto ton_block)
+        tdutils tdutils tdactor adnl tl_api tl_lite_api tl-lite-utils ton_crypto ton_block dht overlay
+        Boost::date_time Boost::system Boost::iostreams Boost::program_options validator catchain validatorsession ton_crypto ton_block
+        rldp full-node ton_validator fift-lib memprof)

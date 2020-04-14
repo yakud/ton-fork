@@ -47,7 +47,7 @@ void ton::ext::TcpStream::run(int id) {
                 continue;
             }
 
-            std::cout << "Message size: " << next_message.data.size() << "\n";
+//            std::cout << "Message size: " << next_message.data.size() << "\n";
             try {
                 switch (next_message.type) {
                     default:

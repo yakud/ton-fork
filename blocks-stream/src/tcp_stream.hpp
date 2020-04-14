@@ -24,7 +24,7 @@ using boost::asio::ip::tcp;
 namespace ton {
 namespace ext {
 
-const uint32_t MESSAGE_SIZE_BLOCK = 5 * 1024 * 1024;
+const uint32_t MESSAGE_SIZE_BLOCK = 10 * 1024 * 1024;
 
 struct TcpStreamConfig {
     std::string host;

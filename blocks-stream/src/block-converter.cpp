@@ -15,6 +15,7 @@ std::basic_string<char> ton::ext::BlockConverter::bin_to_pretty_custom(td::Buffe
     // buffer
     std::ostringstream outp;
     tlb::PrettyPrinter pp{outp, 0};
+    pp.limit = 409600;
 
     auto root = res.move_as_ok();
 
@@ -112,6 +113,7 @@ std::basic_string<char> ton::ext::BlockConverter::bin_to_pretty_custom(td::Buffe
                     block::gen::McBlockExtra mc_block_extra;
                     pp << "\n  custom:(just value:^";
                     mc_block_extra.print_ref(pp, custom_ref);
+                    pp << ")";
                 } else {
                     pp << "\n  custom:nothing";
                 }
@@ -120,7 +122,7 @@ std::basic_string<char> ton::ext::BlockConverter::bin_to_pretty_custom(td::Buffe
             }
         }
 
-        pp << "))";
+        pp << ")";
     } else {
         std::cout << "error load block extra" << std::endl;
         return "";
@@ -254,6 +256,7 @@ std::basic_string<char> ton::ext::BlockConverter::state_to_pretty_custom(td::Buf
     // buffer
     std::ostringstream outp;
     tlb::PrettyPrinter pp{outp, 0};
+    pp.limit = 409600;
 
     // header_data
     auto block_header_res = vm::std_boc_deserialize(header_data);
