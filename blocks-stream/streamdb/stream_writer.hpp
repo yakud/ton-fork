@@ -31,6 +31,7 @@ public:
     }
 
     void writer() {
+        std::cout << "Starting stream writer\n";
         ton::ext::BlockingQueue<streamdb::BlockBucket*> bq(10000);
         queue = &bq;
 
@@ -47,6 +48,8 @@ public:
                 }
                 continue;
             }
+
+            std::cout << "Poped new value!\n";
 
             if (block_bucket == nullptr) {
                 continue;
