@@ -131,8 +131,8 @@ void ton::ext::TcpStream::run(int id) {
 
     std::cout << "CLOSE SOCK " << id << "\n";
     try {
-        if (sock.is_open())
-            sock.close();
+//        if (sock.is_open())
+//            sock.close();
     } catch (std::exception &e) {
         std::cout << "Error sock.close" << e.what() << "\n";
     }
