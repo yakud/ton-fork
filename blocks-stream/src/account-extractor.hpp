@@ -18,6 +18,40 @@ namespace ext {
 
 class AccountExtractor {
 public:
+    static td::Status extract_and_write_shard_state(td::Ref<vm::Cell> &root, td::Ref<ton::validator::BlockData> &block) {
+        // accounts state snapshot and write to stream
+        vm::MerkleProofBuilder pb{root};
+        block::gen::ShardStateUnsplit::Record state;
+        if (!tlb::unpack_cell(pb.root(), state)) {
+            std::cout << "cannot unpack state header" << std::endl;
+            return td::Status::Error("Write_BlockStream_Failed");
+        }
+
+        block::gen::ShardStateUnsplit state_unsplit;
+        block::gen::ShardStateUnsplit::Record state_copy;
+
+        state_copy.global_id = state.global_id;
+        state_copy.shard_id = state.shard_id;
+        state_copy.seq_no = state.seq_no;
+        state_copy.vert_seq_no = state.vert_seq_no;
+        state_copy.gen_utime = state.gen_utime;
+        state_copy.gen_lt = state.gen_lt;
+        state_copy.min_ref_mc_seqno = state.min_ref_mc_seqno;
+        state_copy.out_msg_queue_info = state.out_msg_queue_info;
+        td::Ref<vm::Cell> accounts;
+        state_copy.accounts = accounts;
+        state_copy.before_split = state.before_split;
+        state_copy.r1 = state.r1;
+        state_copy.custom = state.custom;
+
+        td::Ref<vm::Cell> state_cell;
+        if (!state_unsplit.cell_pack(state_cell, state_copy)) {
+            return td::Status::Error(-666,  "ERROR state_copy CELL PACK");
+        }
+
+        return td::Status::OK();
+    }
+
     static td::Status extract_and_write_accounts_state(td::Ref<vm::Cell> &root, td::Ref<ton::validator::BlockData> &block) {
         std::map<std::string, td::BitArray<256>> uniq_accounts_addr;
 

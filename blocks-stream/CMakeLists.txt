@@ -36,7 +36,15 @@ set(BLOCKS_STREAM_SOURCE
         src/tlb_blocks_index.cpp
         src/blocks_fetcher.cpp
         src/blocks_fetcher.hpp
-)
+
+        streamdb/streamdb.hpp
+        streamdb/file_impl.cpp streamdb/file_impl.hpp
+        streamdb/block_bucket.cpp streamdb/block_bucket.hpp
+        streamdb/file_log.cpp streamdb/file_log.cpp
+        streamdb/shard_state_diff.cpp
+        streamdb/stream_writer.hpp
+        streamdb/blocking_queue.hpp
+        )
 
 #add_executable(blocks-stream ${BLOCKS_STREAM_SOURCE})
 add_executable(blocks-stream-reader reader_main.cpp ${BLOCKS_STREAM_SOURCE})

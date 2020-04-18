@@ -29,6 +29,10 @@
 #include "block/block-auto.h"
 #include <blocks-stream/src/stream-writer.hpp>
 #include <blocks-stream/src/account-extractor.hpp>
+#include <blocks-stream/streamdb/shard_state_diff.cpp>
+#include <blocks-stream/streamdb/block_bucket.hpp>
+#include <blocks-stream/streamdb/block_bucket.cpp>
+#include <blocks-stream/streamdb/stream_writer.hpp>
 #include <utility>
 #include "vm/cells/MerkleProof.h"
 
@@ -222,6 +226,22 @@ td::Status ShardStateQ::apply_block(BlockIdExt newid, td::Ref<BlockData> block) 
                                        " different from the one originally required");
   }
 
+
+  // Main stream
+  try {
+      auto shard_state_diff = streamdb::make_shard_state_unsplit_diff(info, block);
+      auto block_bucket = streamdb::BlockBucket(shard_state_diff, block);
+
+      if (streamdb::StreamWriterGlobal::get_instance().write(&block_bucket)) {
+           std::cout << "StreamWriterGlobal apply_block (" << block->data().length() << ")" << block->block_id().to_str() << std::endl;
+      } else {
+          std::cout << "Write StreamWriterGlobal fail" << std::endl;
+          return td::Status::Error("StreamWriterGlobal_failed");
+      }
+
+  } catch (vm::VmError &err) {
+      return td::Status::Error("failed make_shard_state_unsplit_diff");
+  }
 
 
   // Account state stream

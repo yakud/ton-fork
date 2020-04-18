@@ -13,6 +13,8 @@
 #ifndef TON_BLOCK_PARSER_HPP
 #define TON_BLOCK_PARSER_HPP
 
+#include <crypto/block/mc-config.h>
+
 namespace ton {
 namespace ext {
 

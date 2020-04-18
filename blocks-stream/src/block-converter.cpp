@@ -2,7 +2,7 @@
 // Created by user on 10/24/19.
 //
 
-#include <crypto/block/mc-config.h>
+
 #include "block-converter.hpp"
 
 std::basic_string<char> ton::ext::BlockConverter::bin_to_pretty_custom(td::BufferSlice block_data) {

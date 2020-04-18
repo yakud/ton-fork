@@ -63,6 +63,9 @@
 #include <cstdlib>
 #include <set>
 #include <blocks-stream/src/stream-writer.hpp>
+#include <blocks-stream/streamdb/stream_writer.hpp>
+#include <blocks-stream/streamdb/file_impl.hpp>
+#include <blocks-stream/streamdb/file_impl.cpp>
 #include <condition_variable>
 #include <string>
 #include <thread>
@@ -3114,6 +3117,10 @@ void dump_stats() {
   LOG(WARNING) << td::NamedThreadSafeCounter::get_default();
 }
 
+void streamWorker() {
+    streamdb::StreamWriterGlobal::get_instance().writer();
+}
+
 void streamBlocksWorker() {
     ton::ext::FileStreamWriter::get_instance_blocks().writer();
 }
@@ -3263,6 +3270,22 @@ int main(int argc, char *argv[]) {
       std::cout << "Stream init successful. Write to: " << fname.str() << std::endl;
       return td::Status::OK();
   });
+  p.add_option('z', "streamfile", "stream buckets file", [&](td::Slice fname) {
+      streamdb::DB* stream_db = new streamdb::FileDB(
+              fname.data(),
+              fname.str().append(".index").c_str()
+      );
+
+      try {
+          streamdb::StreamWriterGlobal::get_instance().init(stream_db);
+      } catch (std::exception &e) {
+          return td::Status::Error(ton::ErrorCode::error, "bad value for T (--streamfile): can not initialize blocks stream");
+      }
+
+      std::cout << "Stream buckets init successful. Write to: " << fname.str() << std::endl;
+      return td::Status::OK();
+  });
+
   auto S = p.run(argc, argv);
   if (S.is_error()) {
     LOG(ERROR) << "failed to parse options: " << S.move_as_error();
@@ -3272,6 +3295,7 @@ int main(int argc, char *argv[]) {
   // Blocks stream init
   std::thread t1(streamBlocksWorker);
   std::thread t2(streamStateWorker);
+  std::thread t3(streamWorker);
 
   td::set_runtime_signal_handler(1, need_stats).ensure();
 
@@ -3295,6 +3319,14 @@ int main(int argc, char *argv[]) {
         td::log_interface->rotate();
       }
     }
+  }
+
+  // Waiting for stream end writes
+  streamdb::StreamWriterGlobal::get_instance().close();
+  auto stream_queue = streamdb::StreamWriterGlobal::get_instance().get_queue();
+  while (!stream_queue->empty()) {
+      std::cout << "waiting for stream stream_queue.Size(): " << stream_queue->size() << "\n";
+      std::this_thread::sleep_for(std::chrono::milliseconds(500));
   }
 
   return 0;
