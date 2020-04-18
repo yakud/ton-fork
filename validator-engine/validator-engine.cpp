@@ -3294,8 +3294,8 @@ int main(int argc, char *argv[]) {
   }
 
   // Blocks stream init
-  std::thread t1(streamBlocksWorker);
-  std::thread t2(streamStateWorker);
+//  std::thread t1(streamBlocksWorker);
+//  std::thread t2(streamStateWorker);
   std::thread t3(streamWorker);
 
   td::set_runtime_signal_handler(1, need_stats).ensure();
