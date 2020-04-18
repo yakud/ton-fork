@@ -3118,6 +3118,7 @@ void dump_stats() {
 }
 
 void streamWorker() {
+    std::cout << "Call to starting stream writer\n";
     streamdb::StreamWriterGlobal::get_instance().writer();
 }
 
