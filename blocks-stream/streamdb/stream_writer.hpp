@@ -7,7 +7,7 @@
 
 #include "block_bucket.hpp"
 #include "blocks-stream/src/blocking-queue.hpp"
-#include "streamdb.hpp"
+#include "file_impl.hpp"
 
 namespace streamdb {
 
@@ -21,7 +21,7 @@ public:
         close();
     };
 
-    void init(streamdb::DB *_db) {
+    void init(streamdb::FileDB *_db) {
         db = _db;
     }
 
@@ -83,7 +83,7 @@ protected:
     ton::ext::BlockingQueue<streamdb::BlockBucket*> *queue{};
     std::atomic<bool> need_stop{false};
 
-    streamdb::DB *db;
+    streamdb::FileDB *db;
 };
 
 

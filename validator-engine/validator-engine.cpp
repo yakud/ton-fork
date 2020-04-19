@@ -3272,7 +3272,7 @@ int main(int argc, char *argv[]) {
       return td::Status::OK();
   });
   p.add_option('z', "streamfile", "stream buckets file", [&](td::Slice fname) {
-      streamdb::DB* stream_db = new streamdb::FileDB(
+      auto stream_db = new streamdb::FileDB(
               fname.data(),
               fname.str().append(".index").c_str()
       );
