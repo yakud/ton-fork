@@ -14,13 +14,13 @@
 
 namespace streamdb {
 
-class FileDB : public DB  {
+class FileDB  {
 public:
     FileDB(const char * data_path, const char * index_path);
-    ~FileDB() override;
+    ~FileDB();
 
-    uint64_t write_bucket(BlockBucket *bucket, char *buffer, uint64_t max_size) override;
-    BlockBucket read_bucket(char *buffer, uint64_t max_size) override;
+    uint64_t write_bucket(BlockBucket *bucket, char *buffer, uint64_t max_size);
+    BlockBucket read_bucket(char *buffer, uint64_t max_size);
 
 protected:
     FileLog *data_log;
