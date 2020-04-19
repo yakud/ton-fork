@@ -7,7 +7,6 @@
 #define TON_FILE_IMPL_HPP
 
 #include <system_error>
-#include "streamdb.hpp"
 #include "file_impl.hpp"
 #include "file_log.hpp"
 #include "file_log.cpp"

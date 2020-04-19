@@ -37,7 +37,6 @@ set(BLOCKS_STREAM_SOURCE
         src/blocks_fetcher.cpp
         src/blocks_fetcher.hpp
 
-        streamdb/streamdb.hpp
         streamdb/file_impl.cpp streamdb/file_impl.hpp
         streamdb/block_bucket.cpp streamdb/block_bucket.hpp
         streamdb/file_log.hpp streamdb/file_log.cpp
