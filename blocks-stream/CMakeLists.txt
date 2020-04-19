@@ -43,7 +43,6 @@ set(BLOCKS_STREAM_SOURCE
         streamdb/file_log.hpp streamdb/file_log.cpp
         streamdb/shard_state_diff.cpp
         streamdb/stream_writer.hpp
-        streamdb/blocking_queue.hpp
         )
 
 #add_executable(blocks-stream ${BLOCKS_STREAM_SOURCE})
