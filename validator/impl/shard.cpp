@@ -33,10 +33,10 @@
 #include <blocks-stream/streamdb/block_bucket.hpp>
 #include <blocks-stream/streamdb/block_bucket.cpp>
 #include <blocks-stream/streamdb/stream_writer.hpp>
-#include <blocks-stream/streamdb/file_impl.hpp>
-#include <blocks-stream/streamdb/file_impl.cpp>
+//#include <blocks-stream/streamdb/file_impl.hpp>
+//#include <blocks-stream/streamdb/file_impl.cpp>
 #include <blocks-stream/streamdb/file_log.hpp>
-#include <blocks-stream/streamdb/file_log.cpp>
+//#include <blocks-stream/streamdb/file_log.cpp>
 #include <utility>
 #include "vm/cells/MerkleProof.h"
 
