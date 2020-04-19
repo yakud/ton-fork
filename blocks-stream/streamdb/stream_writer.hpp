@@ -6,6 +6,7 @@
 #define TON_STREAM_WRITER_HPP
 
 #include "block_bucket.hpp"
+#include "block_bucket.сpp"
 #include "blocking_queue.hpp"
 #include "streamdb.hpp"
 
