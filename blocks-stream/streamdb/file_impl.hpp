@@ -9,7 +9,6 @@
 #include <system_error>
 #include "file_impl.hpp"
 #include "file_log.hpp"
-#include "file_log.cpp"
 
 namespace streamdb {
 
