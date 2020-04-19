@@ -17,12 +17,12 @@ streamdb::FileDB::~FileDB() {
         index_log->close();
 }
 
-uint64_t streamdb::FileDB::write_bucket(BlockBucket && bucket, char *buffer, uint64_t max_size) {
+uint64_t streamdb::FileDB::write_bucket(BlockBucket *bucket, char *buffer, uint64_t max_size) {
     if (data_log == nullptr || index_log == nullptr) {
         throw std::runtime_error("db broken");
     }
 
-    auto size = bucket.serialize(buffer, max_size);
+    auto size = bucket->serialize(buffer, max_size);
     data_log->write(buffer, size);
     index_log->write(reinterpret_cast<char *>(&size), sizeof(size));
 

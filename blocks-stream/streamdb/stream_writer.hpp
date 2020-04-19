@@ -32,7 +32,7 @@ public:
 
     void writer() {
         std::cout << "Starting stream writer\n";
-        ton::ext::BlockingQueue<streamdb::BlockBucket*> bq(10000);
+        ton::ext::BlockingQueue<streamdb::BlockBucket*> bq(1000);
         queue = &bq;
 
         streamdb::BlockBucket *block_bucket = nullptr;
@@ -56,7 +56,7 @@ public:
             }
 
             try {
-                auto size = db->write_bucket(std::move(*block_bucket), &buffer[0], BUFFER_SIZE);
+                auto size = db->write_bucket(block_bucket, &buffer[0], BUFFER_SIZE);
                 if (size == 0) {
                     throw std::runtime_error("failed to write_bucket block_bucket");
                 }
@@ -67,8 +67,8 @@ public:
                 continue;
             }
         }
-
-        bq.close();
+//
+//        bq.close();
     }
 
     ton::ext::BlockingQueue<streamdb::BlockBucket*>* get_queue() {

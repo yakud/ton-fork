@@ -13,7 +13,7 @@ namespace streamdb {
 class DB {
 public:
     virtual ~DB() = default;
-    virtual uint64_t write_bucket(BlockBucket && bucket, char *buffer, uint64_t max_size) = 0;
+    virtual uint64_t write_bucket(BlockBucket* bucket, char *buffer, uint64_t max_size) = 0;
     virtual BlockBucket read_bucket(char *buffer, uint64_t max_size) = 0;
 };
 

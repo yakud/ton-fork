@@ -19,7 +19,7 @@ public:
     FileDB(const char * data_path, const char * index_path);
     ~FileDB() override;
 
-    uint64_t write_bucket(BlockBucket && bucket, char *buffer, uint64_t max_size) override;
+    uint64_t write_bucket(BlockBucket *bucket, char *buffer, uint64_t max_size) override;
     BlockBucket read_bucket(char *buffer, uint64_t max_size) override;
 
 protected:
